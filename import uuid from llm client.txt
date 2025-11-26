@@ -1,0 +1,154 @@
+import uuid
+from llm_client import LLMClient
+import json
+
+class ToTGenerator:
+    """
+    Tree-of-Thought reasoning:
+    - generates multiple thought branches
+    - each branch = different chain-of-thought
+    """
+    def __init__(self):
+        self.llm = LLMClient()
+
+    def generate_branches(self, prompt, n=4):
+        branches = []
+        for _ in range(n):
+            thought = self.llm.query(
+                "deepseek-v2:16b",
+                f"""
+User question: {prompt}
+
+Generate a DIFFERENT line of reasoning (not final answer).
+Write your thought clearly.
+"""
+            )
+            branches.append(thought.strip())
+        return branches
+
+
+class BranchEvaluator:
+    """
+    Scores thought branches and selects the best one.
+    Using DeepSeek-v2 reasoning ability.
+    """
+    def __init__(self):
+        self.llm = LLMClient()
+
+    def evaluate(self, prompt, branches):
+        score_list = []
+
+        for b in branches:
+            score = self.llm.query(
+                "deepseek-v2:16b",
+                f"""
+Evaluate the following reasoning step for solving this problem:
+
+Problem: {prompt}
+Reasoning: {b}
+
+Score this reasoning from 1 to 10 (10 = excellent, 1 = useless).
+ONLY return the number.
+"""
+            )
+            try:
+                score = int(score.strip())
+            except:
+                score = 1
+
+            score_list.append((b, score))
+
+        # return highest scoring reasoning
+        score_list.sort(key=lambda x: x[1], reverse=True)
+        return score_list[0]
+
+
+class ReActEngine:
+    """
+    Core ReAct loop:
+    - "Thought" (reason)
+    - "Action" (tool call OR continue thinking)
+    - "Observation"
+    - Repeat until done
+    """
+    def __init__(self, tool_map, memory):
+        self.llm = LLMClient()
+        self.tool_map = tool_map
+        self.memory = memory
+
+    def run(self, prompt):
+        thoughts = []
+        loops = 0
+
+        while loops < 6:
+            loops += 1
+
+            # Step 1 — Ask DeepSeek what to do next
+            react_output = self.llm.query(
+                "deepseek-v2:16b",
+                f"""
+We are using the ReAct loop.
+
+User query: {prompt}
+
+Previous thoughts:
+{json.dumps(thoughts, indent=2)}
+
+Decide next step:
+1. Thought: explain your next reasoning step.
+2. Action: 
+   - If code/math/tool needed, return:
+        {"action": TOOL_NAME, "args": {...}}
+   - If final answer ready:
+        {"action": "finish", "answer": "...."}
+Only return JSON.
+"""
+            )
+
+            # Try to parse JSON from model
+            try:
+                decision = json.loads(react_output)
+            except:
+                # fallback
+                decision = {"action": "finish", "answer": react_output}
+
+            if decision["action"] == "finish":
+                return decision["answer"]
+
+            # If tool requested
+            tool = decision["action"]
+            args = decision.get("args", {})
+
+            if tool in self.tool_map:
+                result = self.tool_map[tool](**args)
+                thoughts.append({"tool": tool, "result": result})
+            else:
+                # Treat as plain thought
+                thoughts.append({"thought": decision})
+
+        # If loop exceeded → fallback answer
+        return "Could not solve reliably."
+
+
+class ReActToTBrain:
+    """
+    Combined ReAct + Tree-of-Thought Brain
+    """
+    def __init__(self, tool_map, memory):
+        self.tot = ToTGenerator()
+        self.eval = BranchEvaluator()
+        self.react = ReActEngine(tool_map, memory)
+
+    def answer(self, prompt):
+        # 1) Generate multiple thoughts
+        branches = self.tot.generate_branches(prompt)
+
+        # 2) Pick best thought using DeepSeek reasoning
+        best_branch, score = self.eval.evaluate(prompt, branches)
+
+        # 3) Use ReAct loop with the best branch as context
+        reasoning_context = f"Best reasoning: {best_branch}"
+        final = self.react.run(prompt + "\n" + reasoning_context)
+
+        return final
+

@@ -1,0 +1,390 @@
+/ ===========================================================
+// AI Unified IDE - FULL APP.JS (Final Version)
+// ===========================================================
+
+let editor;
+
+// Load Monaco
+require.config({ paths: { vs: "https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.44.0/min/vs" }});
+require(["vs/editor/editor.main"], () => {
+    editor = monaco.editor.create(document.getElementById("editor"), {
+        value: "// Write code here...",
+        language: "javascript",
+        theme: "vs-dark"
+    });
+});
+
+
+// ===================================================
+// REALTIME STREAM
+// ===================================================
+function startStream() {
+    const ev = new EventSource("http://localhost:5000/stream");
+
+    ev.onmessage = e => {
+        if (e.data) addTerminal(e.data);
+    };
+}
+startStream();
+
+function addTerminal(t) {
+    const term = document.getElementById("terminal");
+    term.textContent += t + "\n";
+    term.scrollTop = term.scrollHeight;
+}
+
+
+// ===================================================
+// FILE TREE
+// ===================================================
+async function loadFileTree() {
+    const res = await fetch("http://localhost:5000/file_tree");
+    const data = await res.json();
+
+    const pane = document.getElementById("file-tree");
+    pane.innerHTML = "";
+
+    data.files.forEach(f => {
+        const el = document.createElement("div");
+        el.textContent = f;
+        el.className = "file-item";
+        el.onclick = () => openFile(f);
+        pane.appendChild(el);
+    });
+}
+loadFileTree();
+
+async function openFile(path) {
+    const res = await fetch("http://localhost:5000/open_file", {
+        method: "POST",
+        headers: {"Content-Type":"application/json"},
+        body: JSON.stringify({path})
+    });
+
+    const data = await res.json();
+    editor.setValue(data.content);
+}
+
+
+// ===================================================
+// CHAT
+// ===================================================
+async function sendChat() {
+    const msg = document.getElementById("chat-input").value;
+    if (!msg) return;
+
+    addChat("You: " + msg);
+    document.getElementById("chat-input").value = "";
+
+    const res = await fetch("http://localhost:5000/chat", {
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({message: msg})
+    });
+
+    const data = await res.json();
+    addChat("AI: " + data.reply);
+}
+
+function addChat(text) {
+    const box = document.getElementById("chat-messages");
+    const el  = document.createElement("div");
+    el.className = "chat-msg";
+    el.textContent = text;
+    box.appendChild(el);
+    box.scrollTop = box.scrollHeight;
+}
+
+// ===================================================
+// BUTTON RIPPLE
+// ===================================================
+document.addEventListener("click", e => {
+    if (e.target.tagName === "BUTTON") {
+        const btn = e.target;
+        const ripple = document.createElement("span");
+        ripple.classList.add("ripple");
+
+        const rect = btn.getBoundingClientRect();
+        ripple.style.left = (e.clientX - rect.left) + "px";
+        ripple.style.top  = (e.clientY - rect.top) + "px";
+
+        btn.appendChild(ripple);
+        setTimeout(()=> ripple.remove(), 400);
+    }
+});
+
+
+// ===================================================
+// OTHERS
+// ===================================================
+function openFileBrowser() {
+    alert("Coming soon...");
+}
+// Load Monaco Editor
+require.config({
+    paths: { vs: "https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.44.0/min/vs" }
+});
+
+require(["vs/editor/editor.main"], function () {
+    editor = monaco.editor.create(document.getElementById("editor"), {
+        value: "// Write code here...",
+        language: "javascript",
+        theme: "vs-dark",
+        automaticLayout: true
+    });
+});
+
+// ===========================================================
+// FILE TREE + OPEN FILE
+// ===========================================================
+
+async function loadFileTree() {
+    const res = await fetch("http://localhost:5000/file_tree");
+    const data = await res.json();
+
+    const cont = document.getElementById("file-tree");
+    cont.innerHTML = "";
+
+    data.files.forEach(f => {
+        const el = document.createElement("div");
+        el.textContent = f;
+        el.className = "file-item";
+        el.onclick = () => openFile(f);
+        cont.appendChild(el);
+    });
+}
+loadFileTree();
+
+async function openFile(path) {
+    const res = await fetch("http://localhost:5000/open_file", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path })
+    });
+
+    const data = await res.json();
+    editor.setValue(data.content);
+}
+
+
+
+// ===========================================================
+// MULTI AGENT 2.0
+// ===========================================================
+
+async function runMultiAgentV2() {
+    const goal = prompt("Enter goal for Multi-Agent:");
+    if (!goal) return;
+
+    const res = await fetch("http://localhost:5000/multi_agent_v2", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ goal })
+    });
+
+    const data = await res.json();
+    editor.setValue(data.code || "// No code returned");
+// ===========================================================
+// AUTOGPT LOOP
+// ===========================================================
+
+async function runAutoGPT() {
+    const goal = prompt("Enter AutoGPT goal:");
+    if (!goal) return;
+
+    const res = await fetch("http://localhost:5000/autogpt", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ goal })
+    });
+
+    const data = await res.json();
+    editor.setValue(data.final_code || "// No final code");
+    showTerminal(data);
+}
+
+
+
+// ===========================================================
+// AUTO TASK MANAGER
+// ===========================================================
+
+async function runAutoTask() {
+    const goal = prompt("Enter task goal:");
+    if (!goal) return;
+
+    const res = await fetch("http://localhost:5000/auto_task", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ goal })
+    });
+
+    showTerminal(await res.json());
+}
+
+
+
+// ===========================================================
+// PROJECT GENERATOR
+// ===========================================================
+
+async function generateProject() {
+    const desc = prompt("Describe project to generate:");
+    if (!desc) return;
+
+          method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ description: desc })
+    });
+
+    showTerminal(await res.json());
+}
+
+
+
+// ===========================================================
+// SEMANTIC SEARCH
+// ===========================================================
+
+async function buildSemanticIndex() {
+    const res = await fetch("http://localhost:5000/semantic/build", {
+        method: "POST"
+    });
+    showTerminal(await res.json());
+}
+
+async function semanticSearch() {
+    const q = prompt("Semantic search query:");
+    if (!q) return;
+
+    const res = await fetch("http://localhost:5000/semantic/search", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query: q })
+    });
+
+    showTerminal(await res.json());
+}
+
+
+
+// ===========================================================
+// FEATURE IMPACT ANALYZER
+// ===========================================================
+
+async function featureImpact() {
+    const desc = prompt("Describe feature change:");
+    if (!desc) return;
+
+    const res = await fetch("http://localhost:5000/feature_impact", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ description: desc })
+  const res = await fetch("http://localhost:5000/generate_project", {
+       editor.setValue(data.patch_preview[0].diff);
+    }
+}
+
+
+
+// ===========================================================
+// TEST GENERATOR
+// ===========================================================
+
+async function generateTests() {
+    const code = editor.getValue();
+
+    const res = await fetch("http://localhost:5000/generate_tests", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code })
+    });
+
+    const data = await res.json();
+    showTerminal(data);
+
+    if (data.length > 0) {
+        editor.setValue(data[0].content);
+    }
+}
+
+
+
+// ===========================================================
+// SELF OPTIMIZER
+// ===========================================================
+
+async function selfOptimize() {
+    const code = editor.getValue();
+
+    const res = await fetch("http://localhost:5000/self_optimize", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code })
+    });
+
+    const data = await res.json();
+    editor.setValue(data.improved_code);
+    showTerminal(data);
+}
+// ===========================================================
+// LONG MEMORY
+// ===========================================================
+
+async function longMemoryTest() {
+    const msg = prompt("Message for long-term memory:");
+    if (!msg) return;
+
+    const res = await fetch("http://localhost:5000/long_memory", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ agent: "IDE-Agent", message: msg })
+    });
+
+    showTerminal(await res.json());
+}
+
+
+
+// ===========================================================
+// UTILS
+// ===========================================================
+
+function showTerminal(data) {
+    document.getElementById("terminal").textContent = JSON.stringify(data, null, 2);
+}
+
+function openFileBrowser() {
+    alert("File browser integration coming next!");
+}
+
+// ===========================
+// CHAT SEND
+// ===========================
+async function sendChat() {
+    const msg = document.getElementById("chat-input").value.trim();
+    if (!msg) return;
+
+    addChatMessage("You: " + msg);
+    document.getElementById("chat-input").value = "";
+
+    const res = await fetch("http://localhost:5000/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: msg })
+    });
+    const data = await res.json();
+    addChatMessage("AI: " + data.reply);
+}
+
+// display message
+function addChatMessage(text) {
+    const box = document.getElementById("chat-messages");
+    const el = document.createElement("div");
+    el.className = "chat-msg";
+    el.textContent = text;
+    box.appendChild(el);
+    box.scrollTop = box.scrollHeight;
+}
+
+

@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>AI Unified IDE</title>
+
+    <link rel="stylesheet" href="style.css">
+
+    <!-- Monaco Editor -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.44.0/min/vs/loader.min.js"></script>
+</head>
+
+<body>
+
+<div id="container">
+
+    <!-- LEFT: FILE TREE -->
+    <div id="file-pane">
+        <h3>Files</h3>
+        <div id="file-tree"></div>
+    </div>
+
+    <!-- CENTER AREA -->
+    <div id="editor-pane">
+
+        <!-- CHAT -->
+        <div id="chat-pane">
+            <div id="chat-messages"></div>
+
+            <div id="chat-input-row">
+                <input id="chat-input" placeholder="Ask AI anything..." />
+                <button onclick="sendChat()">Send</button>
+            </div>
+        </div>
+
+        <!-- EDITOR -->
+        <div id="editor"></div>
+
+        <!-- TERMINAL -->
+        <div id="terminal">// AI Terminal Output</div>
+    </div>
+
+    <!-- RIGHT PANEL: AI AGENTS -->
+    <div id="ai-pane">
+        <h3>AI Agents</h3>
+
+        <button onclick="sendChat()">💬 Chat</button>
+
+        <hr>
+
+        <button onclick="loadFileTree()">🔁 Refresh Files</button>
+
+        <hr>
+
+        <button onclick="buildSemanticIndex()">📚 Build Index</button>
+        <button onclick="semanticSearch()">🔍 Semantic Search</button>
+
+        <hr>
+
+        <button onclick="openFileBrowser()">📂 Open File</button>
+    </div>
+
+</div>
+
+<!-- Main JS -->
+<script src="app.js"></script>
+
+</body>
+</html>
+
