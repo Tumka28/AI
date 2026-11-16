@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+venv/
+
+# Bot V runtime data (memory, experience log, generated tools/projects)
+data/
+generated_project/
+refactored_project/

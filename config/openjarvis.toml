@@ -1,0 +1,27 @@
+# OpenJarvis config that Bot V hands to OpenJarvis (BOTV_OPENJARVIS_CONFIG
+# overrides the path). Keys follow OpenJarvis 1.0.4's config.toml format.
+# Bot V owns permissions: tool access is checked in bot_v/core/permissions.py
+# before any task reaches OpenJarvis.
+
+[engine]
+# llama.cpp's llama-server (OpenAI-compatible). Use "ollama" for Ollama.
+default = "llamacpp"
+
+[engine.llamacpp]
+host = "http://localhost:8080"
+
+[engine.ollama]
+host = "http://localhost:11434"
+
+[intelligence]
+# Empty = use the first model the engine reports.
+default_model = ""
+
+[agent]
+default_agent = "simple"
+max_turns = 10
+
+[analytics]
+# OpenJarvis sends anonymous usage events to its developers by default.
+# Bot V turns that off.
+enabled = false
