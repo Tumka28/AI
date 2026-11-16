@@ -1,0 +1,4 @@
+# Optional: lets Bot V hand tasks to OpenJarvis (Apache-2.0).
+# Needs Python 3.10-3.13.
+-r requirements.txt
+openjarvis==1.0.4
