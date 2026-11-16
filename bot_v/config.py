@@ -13,6 +13,9 @@ runs against Ollama, llama-server (llama.cpp), LM Studio, vLLM, etc.
     BOTV_MODEL_EMBED      model used for embeddings (memory, semantic search)
     BOTV_DATA_DIR         where Bot V keeps its own data (default: <repo>/data)
     BOTV_OPENJARVIS_CONFIG  OpenJarvis config.toml that Bot V hands to OpenJarvis
+    BOTV_OPENJARVIS_SYNC_LLM  "1" (default): OpenJarvis uses the same model server and
+                          model as Bot V (the BOTV_LLM_* settings above); "0": OpenJarvis
+                          uses the [engine] section of its own config.toml instead
 
 Teacher (a bigger model Bot V learns from; off unless BOTV_TEACHER is set):
 
@@ -59,6 +62,7 @@ class Settings:
     models: Dict[str, str] = field(default_factory=dict)
     data_dir: Path = PROJECT_ROOT / "data"
     openjarvis_config: Optional[str] = None
+    openjarvis_sync_llm: bool = True
     teacher_provider: str = ""
     teacher_model: str = ""
     teacher_host: str = ""
@@ -128,6 +132,7 @@ def load_settings(env: Optional[Dict[str, str]] = None) -> Settings:
         models=models,
         data_dir=Path(env.get("BOTV_DATA_DIR", PROJECT_ROOT / "data")),
         openjarvis_config=oj_config,
+        openjarvis_sync_llm=env.get("BOTV_OPENJARVIS_SYNC_LLM", "1").strip().lower() not in ("0", "false", "no"),
         teacher_provider=teacher,
         teacher_model=teacher_model,
         teacher_host=teacher_host,

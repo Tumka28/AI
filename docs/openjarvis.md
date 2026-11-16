@@ -12,6 +12,8 @@
 | Хэрхэн дуудах | `from openjarvis import Jarvis` → `Jarvis(config_path=...).ask_full(query, agent=..., tools=[...])` |
 | Локал модель | `ollama`, `llamacpp` (llama-server, порт 8080), `vllm`, `sglang`, `lmstudio`, `mlx`, … |
 | Аналитик | **Анхдагчаар асаалттай**: OpenJarvis хөгжүүлэгчид рүү нэргүй хэрэглээний мэдээлэл (PostHog) илгээдэг. Bot V-ийн `config/openjarvis.toml` үүнийг **унтраадаг** (`[analytics] enabled = false`). Харин телеметр (`telemetry.db`) нь зөвхөн локал SQLite файл. |
+| Engine солигдох эрсдэл | Engine-ийг тодорхой заагаагүй үед тохируулсан engine унтарсан бол OpenJarvis хариу өгч байгаа **өөр engine руу чимээгүй шилждэг**. Үүнд NVIDIA-ийн cloud NIM (`https://integrate.api.nvidia.com`) ч орно. Энэ нь асуулт гадагш явж болзошгүй гэсэн үг. Шалгалтаар үүнийг бодитоор харсан. Bot V одоо engine-ийг **үргэлж тодорхой заадаг** тул OpenJarvis өөр engine руу шилжихгүй, алдаа өгнө. |
+| Загварын тохиргоо | Bot V нь өөрийн `BOTV_LLM_*` тохиргоог OpenJarvis-д дамжуулна: `ollama` → OpenJarvis-ийн `ollama` engine, `openai` → `llamacpp` engine (OpenAI-тэй нийцтэй ерөнхий client). Ингэснээр хоёулаа нэг сервер, нэг загварыг хэрэглэнэ (`BOTV_OPENJARVIS_SYNC_LLM=0`-ээр унтраана). |
 
 ## Яагаад файлуудыг тарааж хуулаагүй вэ?
 
