@@ -7,15 +7,45 @@ engines and memory. Bot V decides what to run and whether it is allowed (see
 
 OpenJarvis is an optional dependency and is imported lazily, so Bot V still
 works without it. Install with ``pip install -r requirements-openjarvis.txt``.
+
+One model setting for both: unless BOTV_OPENJARVIS_SYNC_LLM=0, OpenJarvis is
+pointed at the same model server and model as Bot V (BOTV_LLM_BACKEND,
+BOTV_LLM_HOST, BOTV_LLM_API_KEY, BOTV_MODEL_GENERAL). The rest of OpenJarvis's
+settings still come from config/openjarvis.toml.
 """
 
 from __future__ import annotations
 
 import importlib.util
+import os
 from dataclasses import asdict, dataclass, field
+from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
-from bot_v.config import settings
+from bot_v.config import Settings, settings
+
+# Bot V's LLM backend -> the OpenJarvis engine that speaks the same protocol.
+# OpenJarvis's "llamacpp" engine is its generic OpenAI-compatible client
+# (GET /v1/models, POST /v1/chat/completions), so it also fits LM Studio, vLLM...
+ENGINE_FOR_BACKEND = {"ollama": "ollama", "openai": "llamacpp"}
+
+
+def llm_overrides(s: Settings) -> Dict[str, str]:
+    """The engine, host and model OpenJarvis should use, taken from Bot V's settings."""
+    engine = ENGINE_FOR_BACKEND[s.llm_backend]
+    host = s.llm_host.rstrip("/")
+    if engine != "ollama" and host.endswith("/v1"):
+        host = host[: -len("/v1")]  # OpenJarvis adds the /v1 prefix itself
+    return {"engine": engine, "host": host, "model": s.models.get("general", "")}
+
+
+def apply_llm_overrides(cfg: Any, overrides: Dict[str, str]) -> None:
+    """Point an OpenJarvis JarvisConfig at Bot V's model server."""
+    engine = overrides["engine"]
+    cfg.engine.default = engine
+    getattr(cfg.engine, engine).host = overrides["host"]
+    if overrides.get("model"):
+        cfg.intelligence.default_model = overrides["model"]
 
 
 class OpenJarvisUnavailable(RuntimeError):
@@ -53,12 +83,18 @@ class OpenJarvisAdapter:
         engine_key: Optional[str] = None,
         model: Optional[str] = None,
         jarvis_factory: Optional[Callable[[], Any]] = None,
+        sync_llm: Optional[bool] = None,
+        bot_settings: Optional[Settings] = None,
     ):
-        self.config_path = config_path or settings.openjarvis_config
+        s = bot_settings or settings
+        self.config_path = config_path or s.openjarvis_config
         self.engine_key = engine_key
         self.model = model
         self._factory = jarvis_factory
         self._jarvis: Any = None
+        sync = s.openjarvis_sync_llm if sync_llm is None else sync_llm
+        self.llm: Optional[Dict[str, str]] = llm_overrides(s) if sync else None
+        self._api_key = s.llm_api_key
 
     # ----------------------------------------------------------- lifecycle
     def is_installed(self) -> bool:
@@ -77,9 +113,24 @@ class OpenJarvisAdapter:
                 "OpenJarvis is not installed. Run: pip install -r requirements-openjarvis.txt"
             )
         from openjarvis import Jarvis
+        from openjarvis.core.config import load_config
 
+        cfg = load_config(Path(self.config_path)) if self.config_path else load_config()
+        model = self.model
+        if self.llm is not None:
+            apply_llm_overrides(cfg, self.llm)
+            model = model or self.llm["model"] or None
+            if self._api_key and self.llm["engine"] != "ollama":
+                # OpenJarvis reads OpenAI-compatible API keys only from the environment.
+                os.environ.setdefault(f"{self.llm['engine'].upper()}_API_KEY", self._api_key)
+        # Always name the engine. Without it, when the configured engine is down
+        # OpenJarvis falls back to any engine that answers, including remote
+        # ones such as NVIDIA's hosted NIM API, so prompts could leave the
+        # machine. With an explicit engine it reports an error instead.
         self._jarvis = Jarvis(
-            config_path=self.config_path, engine_key=self.engine_key, model=self.model
+            config=cfg,
+            engine_key=self.engine_key or cfg.engine.default,
+            model=model,
         )
         return self._jarvis
 
@@ -172,5 +223,7 @@ class OpenJarvisAdapter:
             "installed": installed,
             "version": version,
             "config_path": self.config_path,
+            # engine/host/model shared with Bot V (None: taken from config.toml)
+            "llm": dict(self.llm) if self.llm else None,
             "connected": self._jarvis is not None,
         }

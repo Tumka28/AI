@@ -82,7 +82,7 @@ export BOTV_LLM_BACKEND=ollama          # анхдагч
 export BOTV_MODEL_GENERAL=qwen2.5:14b   # жишээ
 ```
 
-`config/openjarvis.toml` нь анхдагчаар llama-server (`localhost:8080`)-ийг заадаг. Ollama ашиглавал тэнд `default = "ollama"` болгоно.
+**Нэг тохиргоо:** OpenJarvis нь Bot V-тэй **ижил сервер, ижил загварыг** автоматаар хэрэглэнэ (`BOTV_LLM_BACKEND`, `BOTV_LLM_HOST`, `BOTV_LLM_API_KEY`, `BOTV_MODEL_GENERAL`). Ollama руу шилжихэд зөвхөн дээрх хувьсагчуудыг өөрчлөхөд хангалттай. OpenJarvis-д тусдаа загвар өгөх бол `BOTV_OPENJARVIS_SYNC_LLM=0` тохируулаад `config/openjarvis.toml`-ийн `[engine]` хэсгийг засна.
 
 ### 3. Bot V асаах
 
@@ -221,6 +221,7 @@ bot = BotV(gate=PermissionGate(approver=lambda task, tools: input(f"{tools} зө
 | `BOTV_MCP_CONFIG` | `config/mcp.json` | MCP серверүүдийн жагсаалт |
 | `BOTV_DATA_DIR` | `./data` | Bot V-ийн өгөгдөл (санах ой, туршлага, skill, сургалтын өгөгдөл) |
 | `BOTV_OPENJARVIS_CONFIG` | `config/openjarvis.toml` | OpenJarvis-ийн тохиргоо |
+| `BOTV_OPENJARVIS_SYNC_LLM` | `1` | `1`: OpenJarvis Bot V-ийн LLM тохиргоог хэрэглэнэ; `0`: toml-ийн `[engine]`-ийг |
 | `BOTV_SERVER_HOST` / `PORT` | `127.0.0.1` / `5000` | Вэб сервер |
 
 Код дотор модулиуд загварыг **үүргээр** нь дууддаг (`"general"`, `"coder"`, `"vision"`, `"embed"`). Тиймээс загвар солихын тулд кодыг өөрчлөх шаардлагагүй, зөвхөн хувьсагч солино.

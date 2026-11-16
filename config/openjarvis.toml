@@ -3,6 +3,10 @@
 # Bot V owns permissions: tool access is checked in bot_v/core/permissions.py
 # before any task reaches OpenJarvis.
 
+# Model server: by default Bot V points OpenJarvis at the SAME server and model
+# Bot V uses (BOTV_LLM_BACKEND, BOTV_LLM_HOST, BOTV_LLM_API_KEY,
+# BOTV_MODEL_GENERAL), so there is one setting for both. The [engine] and
+# [intelligence] values below are only used with BOTV_OPENJARVIS_SYNC_LLM=0.
 [engine]
 # llama.cpp's llama-server (OpenAI-compatible). Use "ollama" for Ollama.
 default = "llamacpp"
