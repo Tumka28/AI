@@ -13,6 +13,16 @@ runs against Ollama, llama-server (llama.cpp), LM Studio, vLLM, etc.
     BOTV_MODEL_EMBED      model used for embeddings (memory, semantic search)
     BOTV_DATA_DIR         where Bot V keeps its own data (default: <repo>/data)
     BOTV_OPENJARVIS_CONFIG  OpenJarvis config.toml that Bot V hands to OpenJarvis
+
+Teacher (a bigger model Bot V learns from; off unless BOTV_TEACHER is set):
+
+    BOTV_TEACHER          "" (off), "claude", "openai" or "ollama"
+    BOTV_TEACHER_MODEL    model name (claude default: claude-opus-5-5)
+    BOTV_TEACHER_HOST     server URL for "openai" / "ollama" teachers
+    BOTV_TEACHER_EFFORT   Claude effort: low|medium|high|xhigh|max (default high)
+    BOTV_TEACHER_MODE     "fallback" (default): ask the teacher when the local model fails
+                          "review": the teacher also grades every local answer
+                          "manual": only when the teacher is asked directly
 """
 
 from __future__ import annotations
@@ -41,6 +51,16 @@ class Settings:
     models: Dict[str, str] = field(default_factory=dict)
     data_dir: Path = PROJECT_ROOT / "data"
     openjarvis_config: Optional[str] = None
+    teacher_provider: str = ""
+    teacher_model: str = ""
+    teacher_host: str = ""
+    teacher_effort: str = "high"
+    teacher_mode: str = "fallback"
+
+
+TEACHER_PROVIDERS = ("", "claude", "openai", "ollama")
+TEACHER_MODES = ("fallback", "review", "manual")
+CLAUDE_EFFORTS = ("low", "medium", "high", "xhigh", "max")
 
 
 def load_settings(env: Optional[Dict[str, str]] = None) -> Settings:
@@ -65,6 +85,22 @@ def load_settings(env: Optional[Dict[str, str]] = None) -> Settings:
         bundled = PROJECT_ROOT / "config" / "openjarvis.toml"
         oj_config = str(bundled) if bundled.exists() else None
 
+    teacher = env.get("BOTV_TEACHER", "").strip().lower()
+    if teacher not in TEACHER_PROVIDERS:
+        raise ValueError(f"BOTV_TEACHER must be one of {TEACHER_PROVIDERS}, got {teacher!r}")
+    teacher_mode = env.get("BOTV_TEACHER_MODE", "fallback").strip().lower()
+    if teacher_mode not in TEACHER_MODES:
+        raise ValueError(f"BOTV_TEACHER_MODE must be one of {TEACHER_MODES}, got {teacher_mode!r}")
+    teacher_effort = env.get("BOTV_TEACHER_EFFORT", "high").strip().lower()
+    if teacher_effort not in CLAUDE_EFFORTS:
+        raise ValueError(f"BOTV_TEACHER_EFFORT must be one of {CLAUDE_EFFORTS}, got {teacher_effort!r}")
+    teacher_model = env.get("BOTV_TEACHER_MODEL", "")
+    if teacher == "claude" and not teacher_model:
+        teacher_model = "claude-opus-5-5"
+    teacher_host = env.get("BOTV_TEACHER_HOST", "")
+    if teacher in ("openai", "ollama") and not teacher_host:
+        teacher_host = _DEFAULT_HOSTS[teacher]
+
     return Settings(
         llm_backend=backend,
         llm_host=env.get("BOTV_LLM_HOST", _DEFAULT_HOSTS[backend]),
@@ -73,6 +109,11 @@ def load_settings(env: Optional[Dict[str, str]] = None) -> Settings:
         models=models,
         data_dir=Path(env.get("BOTV_DATA_DIR", PROJECT_ROOT / "data")),
         openjarvis_config=oj_config,
+        teacher_provider=teacher,
+        teacher_model=teacher_model,
+        teacher_host=teacher_host,
+        teacher_effort=teacher_effort,
+        teacher_mode=teacher_mode,
     )
 
 
