@@ -1,1 +1,13 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+venv/
+
+# Bot V runtime data (memory, experience log, generated tools/projects)
 data/
+generated_project/
+refactored_project/
+
+# Local MCP server list (may hold tokens in "env")
+config/mcp.json

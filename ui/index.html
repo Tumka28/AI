@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Bot V IDE</title>
+
+    <link rel="stylesheet" href="/ui/style.css">
+
+    <!-- Monaco Editor -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.44.0/min/vs/loader.min.js"></script>
+</head>
+
+<body>
+
+<div id="container">
+
+    <!-- LEFT: FILE TREE -->
+    <div id="file-pane">
+        <h3>Files</h3>
+        <div id="file-tree"></div>
+    </div>
+
+    <!-- CENTER AREA -->
+    <div id="editor-pane">
+
+        <!-- CHAT -->
+        <div id="chat-pane">
+            <div id="chat-messages"></div>
+
+            <div id="chat-input-row">
+                <select id="chat-backend" title="Who answers">
+                    <option value="auto">Bot V (auto)</option>
+                    <option value="local">Local model</option>
+                    <option value="openjarvis">OpenJarvis</option>
+                    <option value="teacher">Teacher</option>
+                    <option value="tools">Tools / Home</option>
+                </select>
+                <input id="chat-input" placeholder="Ask Bot V anything..." />
+                <button onclick="sendChat()">Send</button>
+            </div>
+        </div>
+
+        <!-- EDITOR -->
+        <div id="editor"></div>
+
+        <!-- TERMINAL -->
+        <div id="terminal">// Bot V Terminal Output</div>
+    </div>
+
+    <!-- RIGHT PANEL -->
+    <div id="ai-pane">
+        <h3>Bot V</h3>
+        <button onclick="botStatus()">ℹ️ Status</button>
+        <button onclick="experienceLog()">🧾 Experience Log</button>
+
+        <hr>
+
+        <h3>OpenJarvis</h3>
+        <button onclick="askOpenJarvis()">🤖 Give OpenJarvis a Task</button>
+        <button onclick="openJarvisAgents()">📋 Agents</button>
+        <button onclick="openJarvisTools()">🧰 Tools</button>
+
+        <hr>
+
+        <h3>Tools / Home</h3>
+        <button onclick="listTools()">🛠️ Tools (latency)</button>
+        <button onclick="pendingActions()">✅ Pending Actions</button>
+
+        <hr>
+
+        <h3>Teacher</h3>
+        <button onclick="learningStats()">🎓 Training Data</button>
+        <button onclick="exportDataset('sft')">📦 Export SFT</button>
+        <button onclick="exportDataset('dpo')">⚖️ Export DPO</button>
+
+        <hr>
+
+        <h3>Skills</h3>
+        <button onclick="listSkills()">🧩 Skills</button>
+        <button onclick="importSkill()">⬇️ Import Skill</button>
+        <button onclick="removeSkill()">🗑️ Remove Skill</button>
+
+        <hr>
+
+        <h3>Agents</h3>
+        <button onclick="runMultiAgentV2()">👥 Multi-Agent</button>
+        <button onclick="runAutoGPT()">🔁 AutoGPT</button>
+        <button onclick="generateProject()">🏗️ Generate Project</button>
+        <button onclick="selfOptimize()">🛠️ Self Optimize</button>
+        <button onclick="longMemoryTest()">🧠 Long Memory</button>
+
+        <hr>
+
+        <button onclick="buildSemanticIndex()">📚 Build Index</button>
+        <button onclick="semanticSearch()">🔍 Semantic Search</button>
+        <button onclick="loadFileTree()">🔁 Refresh Files</button>
+    </div>
+
+</div>
+
+<!-- Main JS -->
+<script src="/ui/app.js"></script>
+
+</body>
+</html>

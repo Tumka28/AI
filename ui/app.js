@@ -1,0 +1,328 @@
+// ===========================================================
+// Bot V IDE
+// Served by bot_v/server.py, so every API call is same-origin.
+// ===========================================================
+
+let editor;
+
+// ===========================================================
+// MONACO EDITOR LOADING
+// ===========================================================
+require.config({
+    paths: { vs: "https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.44.0/min/vs" }
+});
+
+require(["vs/editor/editor.main"], () => {
+    editor = monaco.editor.create(document.getElementById("editor"), {
+        value: "// Write code here...",
+        language: "javascript",
+        theme: "vs-dark",
+        automaticLayout: true
+    });
+});
+
+
+// ===========================================================
+// API HELPERS
+// ===========================================================
+async function postJSON(url, body) {
+    const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body || {})
+    });
+    return res.json();
+}
+
+async function getJSON(url) {
+    const res = await fetch(url);
+    return res.json();
+}
+
+
+// ===========================================================
+// REALTIME TERMINAL STREAM (SSE)
+// ===========================================================
+function startStream() {
+    const ev = new EventSource("/stream");
+
+    ev.onmessage = (e) => {
+        if (e.data) addTerminal(e.data);
+    };
+
+    ev.onerror = () => addTerminal("[STREAM ERROR]");
+}
+startStream();
+
+function addTerminal(text) {
+    const term = document.getElementById("terminal");
+    term.textContent += text + "\n";
+    term.scrollTop = term.scrollHeight;
+}
+
+
+// ===========================================================
+// FILE TREE + OPEN FILE
+// ===========================================================
+async function loadFileTree() {
+    const data = await getJSON("/file_tree");
+
+    const pane = document.getElementById("file-tree");
+    pane.innerHTML = "";
+
+    data.files.forEach((f) => {
+        const el = document.createElement("div");
+        el.textContent = f;
+        el.className = "file-item";
+        el.onclick = () => openFile(f);
+        pane.appendChild(el);
+    });
+}
+loadFileTree();
+
+async function openFile(path) {
+    const data = await postJSON("/open_file", { path });
+    if (data.error) return addTerminal("open_file: " + data.error);
+    editor.setValue(data.content);
+}
+
+function openFileBrowser() {
+    loadFileTree();
+}
+
+
+// ===========================================================
+// CHAT (Bot V decides: local model or OpenJarvis)
+// ===========================================================
+async function sendChat() {
+    const input = document.getElementById("chat-input");
+    const msg = input.value.trim();
+    if (!msg) return;
+
+    const backend = document.getElementById("chat-backend").value;
+    addChatMessage("You: " + msg);
+    input.value = "";
+
+    const data = await postJSON("/chat", { message: msg, backend });
+    if (data.error) return addChatMessage("Error: " + data.error);
+
+    let who = "Bot V";
+    if (data.backend === "openjarvis") who = "Bot V → OpenJarvis";
+    if (data.backend === "teacher") who = "Bot V → Teacher";
+    if (data.backend === "tools") who = "Bot V → Tools";
+    if (data.fallback_from) who += " (fallback)";
+    if (data.review) who += ` (review ${data.review.score}/10)`;
+    if (data.skills) who += ` [skills: ${data.skills.join(", ")}]`;
+    addChatMessage(who + ": " + data.reply);
+    if (data.steps && data.steps.length) showTerminal(data.steps);
+    if (data.status === "needs_approval" && data.action) await askApproval(data.action);
+}
+
+async function askApproval(action) {
+    const risk = action.risk === "dangerous" ? "⚠️ DANGEROUS action. " : "";
+    const ok = confirm(`${risk}Bot V wants to run ${action.tool}\n` +
+                       `${JSON.stringify(action.args, null, 2)}\n\nApprove?`);
+    const url = ok ? "/actions/approve" : "/actions/deny";
+    const result = await postJSON(url, { id: action.id });
+    showTerminal(result);
+    addChatMessage(ok ? `Approved ${action.tool}: ${result.status}` : `Denied ${action.tool}`);
+}
+
+function addChatMessage(msg) {
+    const box = document.getElementById("chat-messages");
+    const el = document.createElement("div");
+    el.className = "chat-msg";
+    el.textContent = msg;
+    box.appendChild(el);
+    box.scrollTop = box.scrollHeight;
+}
+
+
+// ===========================================================
+// OPENJARVIS (controlled by Bot V)
+// ===========================================================
+async function askOpenJarvis() {
+    const task = prompt("Task for OpenJarvis:");
+    if (!task) return;
+    const agent = prompt("Agent (empty = none, e.g. orchestrator, native_react, deep_research):", "") || null;
+    const toolsRaw = prompt("Tools, comma-separated (empty = none, e.g. calculator,web_search):", "") || "";
+    const tools = toolsRaw.split(",").map((t) => t.trim()).filter(Boolean);
+
+    addChatMessage(`You → OpenJarvis: ${task}`);
+    const data = await postJSON("/openjarvis/ask", { task, agent, tools });
+    addChatMessage(`Bot V → OpenJarvis [${data.status}]: ${data.reply}`);
+    showTerminal(data);
+}
+
+async function openJarvisTools() {
+    showTerminal(await getJSON("/openjarvis/tools"));
+}
+
+async function openJarvisAgents() {
+    showTerminal(await getJSON("/openjarvis/agents"));
+}
+
+async function botStatus() {
+    showTerminal(await getJSON("/status"));
+}
+
+async function experienceLog() {
+    showTerminal(await getJSON("/experience?n=20"));
+}
+
+
+// ===========================================================
+// TOOLS / HOME ASSISTANT / MCP
+// ===========================================================
+async function listTools() {
+    showTerminal(await getJSON("/tools"));
+}
+
+async function pendingActions() {
+    const data = await getJSON("/actions");
+    showTerminal(data);
+    for (const action of data.pending) await askApproval(action);
+}
+
+
+// ===========================================================
+// TEACHER + TRAINING DATA
+// ===========================================================
+async function learningStats() {
+    showTerminal(await getJSON("/learning/stats"));
+}
+
+async function exportDataset(format) {
+    showTerminal(await postJSON("/learning/export", { format }));
+}
+
+
+// ===========================================================
+// SKILLS (fetch -> quarantine + scan -> you approve)
+// ===========================================================
+async function listSkills() {
+    showTerminal(await getJSON("/skills"));
+}
+
+async function importSkill() {
+    const source = prompt("Skill source (https git URL or local folder):",
+                          "https://github.com/anthropics/skills/tree/main/skills/pdf");
+    if (!source) return;
+
+    const fetched = await postJSON("/skills/fetch", { source });
+    showTerminal(fetched);
+    if (fetched.error) return;
+
+    for (const item of fetched.results) {
+        if (item.status !== "quarantined") continue;
+        const report = await getJSON(`/skills/report/${encodeURIComponent(item.name)}`);
+        showTerminal(report);
+        const c = item.counts;
+        const question = `Skill "${item.name}": verdict ${item.verdict} ` +
+            `(high: ${c.high}, medium: ${c.medium}).\n` +
+            `Read the findings in the terminal. Install it?`;
+        if (!confirm(question)) {
+            await postJSON("/skills/reject", { name: item.name });
+            addTerminal(`rejected ${item.name}`);
+            continue;
+        }
+        let allow = false;
+        if (item.verdict === "blocked") {
+            allow = confirm(`"${item.name}" has HIGH-RISK findings. Install anyway?`);
+            if (!allow) {
+                await postJSON("/skills/reject", { name: item.name });
+                addTerminal(`rejected ${item.name}`);
+                continue;
+            }
+        }
+        const result = await postJSON("/skills/approve", { name: item.name, allow_high_risk: allow });
+        addTerminal(result.error ? `approve failed: ${result.error}` : `installed ${item.name}`);
+    }
+}
+
+async function removeSkill() {
+    const name = prompt("Name of the installed skill to remove:");
+    if (!name) return;
+    showTerminal(await postJSON("/skills/remove", { name }));
+}
+
+
+// ===========================================================
+// BOT V'S OWN AGENTS
+// ===========================================================
+async function runMultiAgentV2() {
+    const goal = prompt("Enter goal for Multi-Agent:");
+    if (!goal) return;
+    const data = await postJSON("/multi_agent_v2", { goal });
+    editor.setValue(data.code || "// No code generated");
+    showTerminal(data);
+}
+
+async function runAutoGPT() {
+    const goal = prompt("Enter AutoGPT goal:");
+    if (!goal) return;
+    const data = await postJSON("/autogpt", { goal });
+    editor.setValue(data.final_code || "// No output");
+    showTerminal(data);
+}
+
+async function generateProject() {
+    const desc = prompt("Project description:");
+    if (!desc) return;
+    showTerminal(await postJSON("/generate_project", { description: desc }));
+}
+
+async function buildSemanticIndex() {
+    showTerminal(await postJSON("/semantic/build"));
+}
+
+async function semanticSearch() {
+    const q = prompt("Search query:");
+    if (!q) return;
+    showTerminal(await postJSON("/semantic/search", { query: q }));
+}
+
+async function selfOptimize() {
+    const data = await postJSON("/self_optimize", { code: editor.getValue() });
+    if (data.improved_code) editor.setValue(data.improved_code);
+    showTerminal(data);
+}
+
+async function longMemoryTest() {
+    const msg = prompt("Message for long-term memory:");
+    if (!msg) return;
+    showTerminal(await postJSON("/long_memory", { agent: "IDE-Agent", message: msg }));
+}
+
+
+// ===========================================================
+// UTILS
+// ===========================================================
+function showTerminal(d) {
+    document.getElementById("terminal").textContent = JSON.stringify(d, null, 2);
+}
+
+
+// ===========================================================
+// BUTTON RIPPLE EFFECT
+// ===========================================================
+document.addEventListener("click", (e) => {
+    if (e.target.tagName === "BUTTON") {
+        const btn = e.target;
+
+        const ripple = document.createElement("span");
+        ripple.classList.add("ripple");
+
+        const rect = btn.getBoundingClientRect();
+        ripple.style.left = e.clientX - rect.left + "px";
+        ripple.style.top = e.clientY - rect.top + "px";
+
+        btn.appendChild(ripple);
+        setTimeout(() => ripple.remove(), 450);
+    }
+});
+
+document.addEventListener("DOMContentLoaded", () => {
+    const input = document.getElementById("chat-input");
+    if (input) input.addEventListener("keydown", (e) => { if (e.key === "Enter") sendChat(); });
+});
