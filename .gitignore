@@ -11,3 +11,6 @@ refactored_project/
 
 # Local MCP server list (may hold tokens in "env")
 config/mcp.json
+
+# Your one-click start settings (paths to your model, tokens in [env])
+config/launch.toml

@@ -16,9 +16,12 @@ from typing import Any, Callable, Dict, List, Optional
 
 from flask import Flask, Response, abort, jsonify, request, send_from_directory
 
+from bot_v import updater
 from bot_v.config import PROJECT_ROOT
 from bot_v.core.brain import BACKENDS, BotV
 from bot_v.skills.library import SkillError
+
+RESTART_CODE = 75  # tells the launcher (bot_v.launch) to start Bot V again
 
 UI_DIR = PROJECT_ROOT / "ui"
 SKIP_DIRS = {".git", "__pycache__", "data", "node_modules", ".venv", "venv", ".pytest_cache"}
@@ -66,13 +69,25 @@ def _require_str(data: Dict[str, Any], key: str) -> str:
     return value
 
 
-def create_app(bot: Optional[BotV] = None, root: Path = PROJECT_ROOT) -> Flask:
+def _restart_soon(delay: float = 1.0) -> None:
+    """Exit with RESTART_CODE after the HTTP response has gone out."""
+    timer = threading.Timer(delay, lambda: os._exit(RESTART_CODE))
+    timer.daemon = True
+    timer.start()
+
+
+def create_app(bot: Optional[BotV] = None, root: Path = PROJECT_ROOT, *,
+               supervised: Optional[bool] = None, auto_update: Optional[bool] = None,
+               restart: Callable[[], None] = _restart_soon, repo: Path = PROJECT_ROOT) -> Flask:
     app = Flask(__name__, static_folder=None)
     hub = EventHub()
     bot = bot or BotV(on_event=hub.publish)
     root = Path(root).resolve()
     app.config["BOT"] = bot
     app.config["HUB"] = hub
+    # Started by bot_v.launch? Only then can Bot V restart itself after an update.
+    supervised = os.environ.get("BOTV_SUPERVISED") == "1" if supervised is None else supervised
+    auto_update = os.environ.get("BOTV_AUTO_UPDATE") == "1" if auto_update is None else auto_update
 
     @app.errorhandler(400)
     def _bad_request(err):
@@ -100,6 +115,25 @@ def create_app(bot: Optional[BotV] = None, root: Path = PROJECT_ROOT) -> Flask:
         if backend not in BACKENDS:
             abort(400, description=f"'backend' must be one of {list(BACKENDS)}")
         return jsonify(bot.handle(message, backend=backend))
+
+    # -------------------------------------------------------------- update
+    @app.get("/update/status")
+    def update_status():
+        info = updater.status(repo)  # git fetch at most every few seconds
+        return jsonify({**info, "supervised": supervised, "auto": auto_update})
+
+    @app.post("/update/apply")
+    def update_apply():
+        if not supervised:
+            return jsonify({"updated": False, "reason": "Bot V can only restart itself when started "
+                            "with start-botv (python -m bot_v.launch)"}), 409
+        result = updater.apply(repo)
+        if result.get("updated"):
+            hub.publish(f"update: {result['from']} -> {result['to']}, restarting")
+            bot.log.record("update", **{k: v for k, v in result.items() if k != "files"})
+            restart()
+            result["restarting"] = True
+        return jsonify(result)
 
     @app.get("/experience")
     def experience():
@@ -329,10 +363,35 @@ def create_app(bot: Optional[BotV] = None, root: Path = PROJECT_ROOT) -> Flask:
     return app
 
 
+def warm_up(bot: BotV, say: Callable[[str], None] = print) -> None:
+    """Load OpenJarvis and the MCP tools in the background so the first request is fast."""
+    if bot.openjarvis.is_installed():
+        try:
+            info = bot.openjarvis.warm_up()
+            say(f"[ok] OpenJarvis бэлэн: engine {info['engine']}, загвар {info['model']}")
+        except Exception as exc:
+            say(f"[!!] OpenJarvis: {exc}")
+    else:
+        say("[--] OpenJarvis суугаагүй (pip install -r requirements-openjarvis.txt)")
+    try:
+        bot.load_tools()
+        sources: Dict[str, int] = {}
+        for tool in bot.tools.list():
+            sources[tool.source] = sources.get(tool.source, 0) + 1
+        say(f"[ok] Tool-ууд: {sources}")
+        if bot.mcp is not None and bot.mcp.errors:
+            say(f"[!!] MCP: {bot.mcp.errors}")
+    except Exception as exc:
+        say(f"[!!] Tool-ууд: {exc}")
+
+
 def main() -> None:
     host = os.environ.get("BOTV_SERVER_HOST", "127.0.0.1")
     port = int(os.environ.get("BOTV_SERVER_PORT", "5000"))
-    create_app().run(host=host, port=port, threaded=True)
+    app = create_app()
+    if os.environ.get("BOTV_WARMUP") == "1":
+        threading.Thread(target=warm_up, args=(app.config["BOT"],), daemon=True).start()
+    app.run(host=host, port=port, threaded=True)
 
 
 if __name__ == "__main__":

@@ -202,6 +202,15 @@ class OpenJarvisAdapter:
 
         return sorted(ToolRegistry.keys())
 
+    def warm_up(self) -> Dict[str, Any]:
+        """Load OpenJarvis and check its engine answers, so the first task is fast."""
+        models = self._client().list_models()
+        return {
+            "engine": self.llm["engine"] if self.llm else self.engine_key,
+            "model": (self.llm or {}).get("model") or self.model,
+            "models": list(models)[:5],
+        }
+
     def index_path(self, path: str) -> Dict[str, Any]:
         """Index a file or folder into OpenJarvis memory."""
         return self._client().memory.index(path)

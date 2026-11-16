@@ -121,5 +121,8 @@ class FakeJarvis:
             ]
         return result
 
+    def list_models(self) -> List[str]:
+        return ["oj-model"]
+
     def close(self) -> None:
         self.closed = True

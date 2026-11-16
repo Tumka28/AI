@@ -43,6 +43,8 @@ OpenJarvis нь Bot V-ийн кодонд **хуулагдаагүй**. Тусд
 | `bot_v/memory/` | Урт хугацааны санах ой (vector store), **experience_log** |
 | `bot_v/search/`, `project/`, `feature_impact/`, `self_optimize/` | Кодын хайлт, төсөл үүсгэх, нөлөөллийн шинжилгээ, өөрийгөө сайжруулах |
 | `bot_v/server.py` | Flask сервер (IDE + JSON API) |
+| `bot_v/launch.py`, `start-botv.bat`, `start-botv.sh` | Нэг товчоор асаах: загварын сервер + Bot V + OpenJarvis + хөтөч |
+| `bot_v/updater.py` | GitHub-аас аюулгүй шинэчлэх (main, fast-forward) |
 | `ui/` | Вэб IDE (Monaco editor, chat, terminal) |
 | `config/openjarvis.toml` | Bot V-ийн OpenJarvis-д өгөх тохиргоо |
 | `config/mcp.example.json` | MCP серверүүдийн жишээ тохиргоо (`config/mcp.json` болгон хуулна) |
@@ -50,7 +52,26 @@ OpenJarvis нь Bot V-ийн кодонд **хуулагдаагүй**. Тусд
 | `tests/` | Тестүүд (`pytest`) |
 | `legacy/`, `docs/notes/` | Хуучин ноорог файлууд (лавлагаа болгон хадгалсан) |
 
-## Эхлүүлэх
+## Нэг товчоор асаах
+
+**Windows:** `start-botv.bat`-ийг давхар дарна. **macOS / Linux:** `./start-botv.sh` ажиллуулна.
+
+Энэ нь дараах бүх зүйлийг өөрөө хийнэ:
+1. Анх удаа ажиллуулахад Python 3.13 орчин (`.venv`) үүсгэж, бүх package-ийг суулгана. Мөн хэдэн асуулт асууж (`llama-server` уу `Ollama` уу, GGUF файл хаана байгаа вэ) `config/launch.toml`-ийг үүсгэнэ.
+2. GitHub-аас шинэ хувилбар байгаа эсэхийг шалгаж, байвал татна.
+3. Загварын серверийг (llama-server эсвэл Ollama) асааж, бэлэн болтол хүлээнэ. Загварын нэрийг серверээс өөрөө олно.
+4. Bot V-ийг асааж, **OpenJarvis** болон MCP tool-уудыг урьдчилан бэлтгэнэ.
+5. Хөтчийг нээнэ (**http://127.0.0.1:5000**).
+
+Цонхоо хаах эсвэл Ctrl+C дарахад launcher өөрийн асаасан бүх зүйлийг унтраана. Ширээний компьютер (desktop) дээр товчлол үүсгэх бол `start-botv.bat` дээр баруун товч дараад **Send to → Desktop (create shortcut)** сонгоно.
+
+**Автомат шинэчлэл (F5):** GitHub дээр merge хийсний дараа хөтөч дээр **F5** дарахад Bot V шинэ кодыг татаж, өөрөө дахин асна. Хуудас ч өөрөө дахин ачаалагдана. Шаардлагатай бол шинэ package-уудыг суулгана. Загварын сервер унтрахгүй.
+- Шинэчлэл зөвхөн `main` салбар дээр, таны засаагүй (локал өөрчлөлтгүй) файлуудад, fast-forward хэлбэрээр хийгдэнэ. Таны өөрчилсөн файлыг хэзээ ч дарж бичихгүй. Шинэчлэх боломжгүй бол шалтгааныг нь terminal хэсэгт харуулна.
+- Унтраах бол `config/launch.toml`-д `[update] auto = false` болгоно.
+
+Тохиргоо `config/launch.toml`-д байна (git-д орохгүй; жишээ нь `config/launch.example.toml`). Юу асахыг шалгах: `python -m bot_v.launch --check`.
+
+## Гараар асаах
 
 ### 1. Суулгах
 

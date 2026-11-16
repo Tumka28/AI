@@ -85,6 +85,53 @@ def test_ui_is_served(client):
     assert client.get("/ui/app.js").status_code == 200
 
 
+def make_app(tmp_path, **kw):
+    bot = BotV(
+        llm=FakeLLM(), openjarvis=OpenJarvisAdapter(jarvis_factory=FakeJarvis), gate=PermissionGate(),
+        log=ExperienceLog(tmp_path / "exp.jsonl"), teacher=None,
+        training=TrainingStore(tmp_path / "t.jsonl"), skills=SkillLibrary(root=tmp_path / "skills"),
+    )
+    return create_app(bot=bot, root=tmp_path, **kw), bot
+
+
+def test_update_status_and_apply(tmp_path, monkeypatch):
+    from bot_v import updater
+
+    monkeypatch.setattr(updater, "status", lambda repo, **kw: {"can_update": True, "behind": 2, "reason": "2 new"})
+    restarts = []
+    app, _ = make_app(tmp_path, supervised=True, auto_update=True, restart=lambda: restarts.append(1))
+    client = app.test_client()
+    info = client.get("/update/status").get_json()
+    assert info["can_update"] and info["supervised"] and info["auto"]
+
+    monkeypatch.setattr(updater, "apply", lambda repo: {"updated": True, "from": "aaa", "to": "bbb",
+                                                        "commits": 2, "files": ["x.py"]})
+    result = client.post("/update/apply").get_json()
+    assert result["restarting"] is True and restarts == [1]
+
+    monkeypatch.setattr(updater, "apply", lambda repo: {"updated": False, "reason": "local changes"})
+    assert client.post("/update/apply").get_json()["updated"] is False and restarts == [1]
+
+
+def test_update_apply_needs_the_launcher(tmp_path, monkeypatch):
+    from bot_v import updater
+
+    monkeypatch.setattr(updater, "apply", lambda repo: pytest.fail("must not update"))
+    app, _ = make_app(tmp_path, supervised=False, restart=lambda: pytest.fail("must not restart"))
+    res = app.test_client().post("/update/apply")
+    assert res.status_code == 409 and "start-botv" in res.get_json()["reason"]
+
+
+def test_warm_up_reports_openjarvis_and_tools(tmp_path):
+    from bot_v.server import warm_up
+
+    _, bot = make_app(tmp_path)
+    lines = []
+    warm_up(bot, say=lines.append)
+    assert lines[0].startswith("[ok] OpenJarvis")
+    assert lines[1].startswith("[ok] Tool-ууд") and "native" in lines[1]
+
+
 def test_tools_endpoints(client):
     tools = {t["name"]: t for t in client.get("/tools").get_json()["tools"]}
     assert {"calculate", "now"} <= set(tools)
