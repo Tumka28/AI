@@ -19,9 +19,10 @@ def server():
 
 def test_handshake_list_and_call(server):
     tools = server.list_tools()
-    assert [t["name"] for t in tools] == ["echo", "fail", "slow", "pong_received", "wipe", "crash"]  # 2 pages
+    assert [t["name"] for t in tools] == [
+        "echo", "fail", "slow", "pong_received", "wipe", "crash", "hang_up"]  # 2 pages
     assert server.protocol_version == "2025-11-25"
-    assert server.status()["running"] and server.status()["tools"] == 6
+    assert server.status()["running"] and server.status()["tools"] == 7
 
     assert server.call_tool("echo", {"text": "сайн уу"}) == {"text": "сайн уу", "structured": {"echo": "сайн уу"}}
     with pytest.raises(MCPError, match="boom"):
@@ -49,6 +50,44 @@ def test_crash_is_reported_and_server_restarts(server):
         server.call_tool("crash", {})
     assert not server.running
     assert server.call_tool("echo", {"text": "back"})["text"] == "back"  # restarted on demand
+
+
+def test_server_that_hangs_up_counts_as_stopped_and_is_replaced(server):
+    # On Windows the pipe closes a moment before the process is gone. Bot V must
+    # treat the server as stopped right away and start a fresh one.
+    server.list_tools()
+    with pytest.raises(MCPError):
+        server.call_tool("hang_up", {})
+    lingering = server._proc
+    assert not server.running
+    assert server.call_tool("echo", {"text": "new process"})["text"] == "new process"
+    assert server._proc is not lingering
+    assert lingering.wait(timeout=5) is not None  # the old process was not left behind
+
+
+def test_python_servers_get_utf8_stdio(monkeypatch):
+    # FAKE_WINDOWS_DEFAULT makes the fake server behave like Python on Windows:
+    # cp1252 pipes unless PYTHONIOENCODING / PYTHONUTF8 say otherwise.
+    monkeypatch.delenv("PYTHONIOENCODING", raising=False)
+    monkeypatch.delenv("PYTHONUTF8", raising=False)
+    srv = MCPServer("win", sys.executable, [FAKE], env={"FAKE_WINDOWS_DEFAULT": "1"}, timeout=5)
+    try:
+        assert srv.call_tool("echo", {"text": "Сайн уу, Монгол"})["text"] == "Сайн уу, Монгол"
+    finally:
+        srv.close()
+
+
+def test_command_is_resolved_like_a_shell_would(monkeypatch):
+    # Windows: "npx" is really "npx.cmd"; shutil.which finds it through PATHEXT.
+    from bot_v.tools import mcp_client
+
+    monkeypatch.setattr(mcp_client.shutil, "which",
+                        lambda cmd: sys.executable if cmd == "fake-npx" else None)
+    srv = MCPServer("cmd", "fake-npx", [FAKE], timeout=5)
+    try:
+        assert srv.call_tool("echo", {"text": "ok"})["text"] == "ok"
+    finally:
+        srv.close()
 
 
 def test_bad_protocol_version_is_rejected():

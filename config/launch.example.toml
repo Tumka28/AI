@@ -1,0 +1,39 @@
+# Bot V one-click start settings (start-botv.bat / start-botv.sh).
+# This file is yours: it is not committed to git.
+
+[model]
+# "llamacpp" = llama-server with a GGUF file, "ollama" = Ollama
+engine = "llamacpp"
+# Where the model server listens (llama-server: 8080, Ollama: 11434)
+host = "http://127.0.0.1:8080"
+# Start the model server if it is not running yet
+start = true
+# How long a big model may take to load (seconds)
+wait_seconds = 600
+
+[llamacpp]
+# llama-server(.exe): a full path, or just the name if it is on PATH
+server = "llama-server"
+# Your model file, e.g. "C:/models/qwen3-14b-q4_k_m.gguf"
+model = ""
+# Extra llama-server options, e.g. ["-c", "8192", "-ngl", "99"] (-ngl: layers on the GPU)
+args = ["-c", "8192"]
+
+[ollama]
+model = "qwen3:14b"
+# Download the model if Ollama does not have it yet
+pull = true
+
+[botv]
+port = 5000
+open_browser = true
+
+[update]
+# On every start and on F5 in the browser: take the newest version from GitHub
+# (main branch, fast-forward only; local changes are never overwritten)
+auto = true
+
+[env]
+# More Bot V settings (see README), for example:
+# BOTV_HA_URL = "http://homeassistant.local:8123"
+# BOTV_TEACHER = "claude"

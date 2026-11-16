@@ -322,6 +322,57 @@ document.addEventListener("click", (e) => {
     }
 });
 
+// ===========================================================
+// AUTO-UPDATE: every page load (F5) checks GitHub; when Bot V was
+// started with start-botv, it updates itself and restarts.
+// ===========================================================
+function showOverlay(text) {
+    const el = document.getElementById("update-overlay");
+    el.textContent = text;
+    el.hidden = false;
+}
+
+function hideOverlay() {
+    document.getElementById("update-overlay").hidden = true;
+}
+
+async function waitForServer() {
+    await new Promise((r) => setTimeout(r, 1500));
+    for (let i = 0; i < 180; i++) {
+        try {
+            const res = await fetch("/status", { cache: "no-store" });
+            if (res.ok) return true;
+        } catch (e) { /* still restarting */ }
+        await new Promise((r) => setTimeout(r, 1000));
+    }
+    return false;
+}
+
+async function checkForUpdate() {
+    let s;
+    try { s = await getJSON("/update/status"); } catch (e) { return; }
+    if (!s.can_update) {
+        if (s.behind > 0) addTerminal(`[update] ${s.reason}`);
+        return;
+    }
+    if (!s.supervised || !s.auto) {
+        addTerminal(`[update] GitHub дээр ${s.behind} шинэ commit байна. start-botv-ээр асаавал F5 дарахад шинэчлэгдэнэ.`);
+        return;
+    }
+    showOverlay(`GitHub-аас шинэчилж байна (${s.behind} commit)...`);
+    let r;
+    try { r = await postJSON("/update/apply"); } catch (e) { hideOverlay(); return; }
+    if (!r.updated) {
+        hideOverlay();
+        addTerminal(`[update] ${r.reason}`);
+        return;
+    }
+    showOverlay(`Шинэчлэгдлээ (${r.from} → ${r.to}). Bot V дахин асаж байна...`);
+    if (await waitForServer()) location.reload();
+    else showOverlay("Bot V дахин асаагүй. start-botv цонхыг шалгана уу.");
+}
+checkForUpdate();
+
 document.addEventListener("DOMContentLoaded", () => {
     const input = document.getElementById("chat-input");
     if (input) input.addEventListener("keydown", (e) => { if (e.key === "Enter") sendChat(); });
