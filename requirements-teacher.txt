@@ -1,0 +1,3 @@
+# Optional: Claude as Bot V's teacher (BOTV_TEACHER=claude).
+-r requirements.txt
+anthropic>=2.0

@@ -108,8 +108,24 @@ async function sendChat() {
 
     let who = "Bot V";
     if (data.backend === "openjarvis") who = "Bot V → OpenJarvis";
+    if (data.backend === "teacher") who = "Bot V → Teacher";
+    if (data.backend === "tools") who = "Bot V → Tools";
     if (data.fallback_from) who += " (fallback)";
+    if (data.review) who += ` (review ${data.review.score}/10)`;
+    if (data.skills) who += ` [skills: ${data.skills.join(", ")}]`;
     addChatMessage(who + ": " + data.reply);
+    if (data.steps && data.steps.length) showTerminal(data.steps);
+    if (data.status === "needs_approval" && data.action) await askApproval(data.action);
+}
+
+async function askApproval(action) {
+    const risk = action.risk === "dangerous" ? "⚠️ DANGEROUS action. " : "";
+    const ok = confirm(`${risk}Bot V wants to run ${action.tool}\n` +
+                       `${JSON.stringify(action.args, null, 2)}\n\nApprove?`);
+    const url = ok ? "/actions/approve" : "/actions/deny";
+    const result = await postJSON(url, { id: action.id });
+    showTerminal(result);
+    addChatMessage(ok ? `Approved ${action.tool}: ${result.status}` : `Denied ${action.tool}`);
 }
 
 function addChatMessage(msg) {
@@ -152,6 +168,82 @@ async function botStatus() {
 
 async function experienceLog() {
     showTerminal(await getJSON("/experience?n=20"));
+}
+
+
+// ===========================================================
+// TOOLS / HOME ASSISTANT / MCP
+// ===========================================================
+async function listTools() {
+    showTerminal(await getJSON("/tools"));
+}
+
+async function pendingActions() {
+    const data = await getJSON("/actions");
+    showTerminal(data);
+    for (const action of data.pending) await askApproval(action);
+}
+
+
+// ===========================================================
+// TEACHER + TRAINING DATA
+// ===========================================================
+async function learningStats() {
+    showTerminal(await getJSON("/learning/stats"));
+}
+
+async function exportDataset(format) {
+    showTerminal(await postJSON("/learning/export", { format }));
+}
+
+
+// ===========================================================
+// SKILLS (fetch -> quarantine + scan -> you approve)
+// ===========================================================
+async function listSkills() {
+    showTerminal(await getJSON("/skills"));
+}
+
+async function importSkill() {
+    const source = prompt("Skill source (https git URL or local folder):",
+                          "https://github.com/anthropics/skills/tree/main/skills/pdf");
+    if (!source) return;
+
+    const fetched = await postJSON("/skills/fetch", { source });
+    showTerminal(fetched);
+    if (fetched.error) return;
+
+    for (const item of fetched.results) {
+        if (item.status !== "quarantined") continue;
+        const report = await getJSON(`/skills/report/${encodeURIComponent(item.name)}`);
+        showTerminal(report);
+        const c = item.counts;
+        const question = `Skill "${item.name}": verdict ${item.verdict} ` +
+            `(high: ${c.high}, medium: ${c.medium}).\n` +
+            `Read the findings in the terminal. Install it?`;
+        if (!confirm(question)) {
+            await postJSON("/skills/reject", { name: item.name });
+            addTerminal(`rejected ${item.name}`);
+            continue;
+        }
+        let allow = false;
+        if (item.verdict === "blocked") {
+            allow = confirm(`"${item.name}" has HIGH-RISK findings. Install anyway?`);
+            if (!allow) {
+                await postJSON("/skills/reject", { name: item.name });
+                addTerminal(`rejected ${item.name}`);
+                continue;
+            }
+        }
+        const result = await postJSON("/skills/approve", { name: item.name, allow_high_risk: allow });
+        addTerminal(result.error ? `approve failed: ${result.error}` : `installed ${item.name}`);
+    }
+}
+
+async function removeSkill() {
+    const name = prompt("Name of the installed skill to remove:");
+    if (!name) return;
+    showTerminal(await postJSON("/skills/remove", { name }));
 }
 
 

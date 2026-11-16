@@ -28,9 +28,9 @@
 | `agents/` (22) | `simple`, `orchestrator` (tool автоматаар сонгоно), `native_react`, `deep_research`, `native_openhands` (CodeAct), `operative`, `monitor_operative`, `morning_digest`, `claude_code`, `minions`, `conductor`… | ✅ `bot.delegate(task, agent=...)` |
 | `tools/` (43) | calculator, web_search, file_read/write, shell_exec, code_interpreter, git_*, http_request, memory_*, kg_* (knowledge graph), pdf_extract, text_to_speech… | ✅ `bot.delegate(task, tools=[...])` + **Bot V-ийн зөвшөөрлийн хаалга** |
 | `memory/`, `tools/storage/` | sqlite, bm25, faiss, dense, hybrid, knowledge_graph санах ой | ✅ `adapter.index_path()`, `adapter.search_memory()` |
-| `skills/` | agentskills.io стандарт. Hermes (~150), OpenClaw (~13,700) skill импортлох | ⏳ 4-р үе: Bot V-ийн skill-тэй нэгтгэх, импорт бүрийг шалгах |
-| `learning/` | Trace-ээс суралцах, DSPy-аар prompt/skill оновчлох | ⏳ 5-р үе: experience log-той холбох |
-| `mcp/`, `a2a/` | MCP сервер/клиент, agent-to-agent протокол | ⏳ 4-р үе |
+| `skills/` | agentskills.io стандарт. Hermes (~150), OpenClaw (~13,700) skill импортлох | ✅ Bot V ижил форматаар өөрөө импортолно (quarantine → шалгалт → зөвшөөрөл, [docs/skills.md](skills.md)). OpenJarvis-ийн SDK skill ачаалдаггүй (`cli/ask.py` л ачаалдаг) тул Bot V зааврыг даалгавартай хамт дамжуулна |
+| `learning/` | Trace-ээс суралцах, DSPy-аар prompt/skill оновчлох | ⏳ Bot V өөрийн багш + SFT/DPO dataset-тэй боллоо ([docs/learning.md](learning.md)). OpenJarvis-ийн learning-тэй холбох нь дараагийн алхам |
+| `mcp/`, `a2a/` | MCP сервер/клиент, agent-to-agent протокол | ✅ Bot V өөрийн MCP client-тэй боллоо ([docs/tools.md](tools.md)): серверийг нэг удаа асааж, tool бүрийг Bot V-ийн зөвшөөрлөөр дуудна. a2a нь дараа |
 | `channels/` | Telegram, Slack, Discord, Twilio, Gmail… | ⏳ утсаар Bot V-тэй ярих (6-р үе) |
 | `speech/` | Whisper STT, TTS | ⏳ дуут удирдлага |
 | `scheduler/`, `daemon/` | Хуваарьт ажил, байнгын agent | ⏳ |

@@ -18,6 +18,7 @@ from flask import Flask, Response, abort, jsonify, request, send_from_directory
 
 from bot_v.config import PROJECT_ROOT
 from bot_v.core.brain import BACKENDS, BotV
+from bot_v.skills.library import SkillError
 
 UI_DIR = PROJECT_ROOT / "ui"
 SKIP_DIRS = {".git", "__pycache__", "data", "node_modules", ".venv", "venv", ".pytest_cache"}
@@ -128,6 +129,93 @@ def create_app(bot: Optional[BotV] = None, root: Path = PROJECT_ROOT) -> Flask:
         return jsonify(
             {"tools": [{"name": t, "needs_approval": not bot.gate.is_safe(t)} for t in tools]}
         )
+
+    # --------------------------------------------------------------- tools
+    @app.get("/tools")
+    def tools_list():
+        bot.load_tools()
+        return jsonify({"tools": bot.tools.describe(),
+                        "mcp": bot.mcp.status() if bot.mcp else None})
+
+    @app.post("/tools/call")
+    def tools_call():
+        data = _json_body()
+        name = _require_str(data, "tool")
+        args = data.get("args") or {}
+        if not isinstance(args, dict):
+            abort(400, description="'args' must be a JSON object")
+        bot.load_tools()
+        result = bot.tools.call(name, args, task=f"direct call: {name}")
+        code = {"ok": 200, "needs_approval": 202, "denied": 403, "invalid_args": 400}.get(result["status"], 502)
+        return jsonify(result), code
+
+    @app.get("/actions")
+    def actions_list():
+        return jsonify({"pending": bot.tools.pending()})
+
+    @app.post("/actions/approve")
+    def actions_approve():
+        result = bot.approve_action(_require_str(_json_body(), "id"))
+        return jsonify(result), (200 if result["status"] == "ok" else 400)
+
+    @app.post("/actions/deny")
+    def actions_deny():
+        result = bot.deny_action(_require_str(_json_body(), "id"))
+        return jsonify(result), (200 if result["status"] == "denied" else 400)
+
+    # ------------------------------------------------------- teacher/learning
+    @app.get("/learning/stats")
+    def learning_stats():
+        return jsonify(bot.training.stats())
+
+    @app.post("/learning/export")
+    def learning_export():
+        fmt = _json_body().get("format", "sft")
+        if fmt not in ("sft", "dpo"):
+            abort(400, description="'format' must be 'sft' or 'dpo'")
+        out = bot.training.path.parent / f"train_{fmt}.jsonl"
+        count = bot.training.export_sft(out) if fmt == "sft" else bot.training.export_dpo(out)
+        return jsonify({"format": fmt, "count": count, "path": str(out)})
+
+    # -------------------------------------------------------------- skills
+    @app.errorhandler(SkillError)
+    def _skill_error(err):
+        return jsonify({"error": str(err)}), 400
+
+    @app.get("/skills")
+    def skills_list():
+        return jsonify(bot.skills.list())
+
+    @app.post("/skills/fetch")
+    def skills_fetch():
+        data = _json_body()
+        source = _require_str(data, "source")
+        subdir = data.get("subdir") or None
+        ref = data.get("ref") or None
+        return jsonify({"results": bot.skills.fetch(source, subdir=subdir, ref=ref)})
+
+    @app.get("/skills/report/<name>")
+    def skills_report(name: str):
+        return jsonify(bot.skills.report(name))
+
+    @app.post("/skills/approve")
+    def skills_approve():
+        data = _json_body()
+        name = _require_str(data, "name")
+        allow = data.get("allow_high_risk") is True
+        return jsonify(bot.skills.approve(name, allow_high_risk=allow, approved_by="web-ui"))
+
+    @app.post("/skills/reject")
+    def skills_reject():
+        name = _require_str(_json_body(), "name")
+        bot.skills.reject(name)
+        return jsonify({"name": name, "status": "rejected"})
+
+    @app.post("/skills/remove")
+    def skills_remove():
+        name = _require_str(_json_body(), "name")
+        bot.skills.remove(name)
+        return jsonify({"name": name, "status": "removed"})
 
     # --------------------------------------------------------------- files
     @app.get("/file_tree")
