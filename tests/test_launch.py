@@ -113,12 +113,44 @@ def test_first_run_wizard(tmp_path, monkeypatch):
     cfg = load_config(path)
     assert cfg["model"]["engine"] == "llamacpp" and cfg["llamacpp"]["model"] == str(gguf)
 
+    monkeypatch.setattr(launch, "ollama_models", lambda host=launch.OLLAMA_HOST: [])
     answers = iter(["2", "llama3.2:3b"])
     path = tmp_path / "b.toml"
     first_run(path, ask=lambda q: next(answers), interactive=True)
     cfg = load_config(path)
     assert cfg["model"]["engine"] == "ollama" and cfg["model"]["host"].endswith(":11434")
     assert cfg["ollama"]["model"] == "llama3.2:3b"
+
+
+def test_wizard_lists_installed_ollama_models_and_fixes_names(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(launch, "ollama_models", lambda host=launch.OLLAMA_HOST: ["qwen3:14b", "llama3.2:3b"])
+    answers = iter(["2", "2"])  # Ollama, second installed model
+    path = tmp_path / "a.toml"
+    first_run(path, ask=lambda q: next(answers), interactive=True)
+    assert load_config(path)["ollama"]["model"] == "llama3.2:3b"
+    assert "1. qwen3:14b" in capsys.readouterr().out
+
+    # "qwen3.8 27b" (a space instead of ':') is understood; a name with other spaces is asked again.
+    answers = iter(["2", "qwen3.8 27b"])
+    path = tmp_path / "b.toml"
+    first_run(path, ask=lambda q: next(answers), interactive=True)
+    assert load_config(path)["ollama"]["model"] == "qwen3.8:27b"
+
+    answers = iter(["2", "my model name", "qwen3:14b"])
+    path = tmp_path / "c.toml"
+    first_run(path, ask=lambda q: next(answers), interactive=True)
+    assert load_config(path)["ollama"]["model"] == "qwen3:14b"
+    assert "хоосон зайгүй" in capsys.readouterr().out
+
+
+def test_ollama_name_helpers():
+    assert launch.normalize_ollama_name("qwen3 14b") == "qwen3:14b"
+    assert launch.normalize_ollama_name(" qwen3.8 27B ") == "qwen3.8:27b"
+    assert launch.normalize_ollama_name("qwen3:14b") == "qwen3:14b"
+    for good in ("qwen3:14b", "llama3.2", "hf.co/bartowski/Qwen3-GGUF:Q4_K_M"):
+        assert launch.valid_ollama_name(good)
+    for bad in ("qwen3.8 27b", "", ":14b", "qwen3:14b extra"):
+        assert not launch.valid_ollama_name(bad)
 
 
 # ---------------------------------------------------------- model server
@@ -189,8 +221,14 @@ def test_ollama_model_check(tmp_path, json_server, monkeypatch):
 
     cfg["ollama"]["model"] = "missing-model"
     cfg["ollama"]["pull"] = False
-    with pytest.raises(LaunchError, match="ollama pull"):
+    with pytest.raises(LaunchError, match="ollama pull") as err:
         ensure_model_server(cfg, tmp_path)
+    assert "qwen3:14b" in str(err.value)  # the message lists what is installed
+
+    cfg["ollama"]["model"] = "qwen3.8 27b"  # what was typed on the first real run
+    with pytest.raises(LaunchError, match="нэр буруу") as err:
+        ensure_model_server(cfg, tmp_path)
+    assert "config/launch.toml" in str(err.value)
 
 
 # ------------------------------------------------------------------- Bot V

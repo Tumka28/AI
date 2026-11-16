@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -122,6 +123,52 @@ def find_gguf(limit: int = 10) -> List[Path]:
     return unique[:limit]
 
 
+OLLAMA_HOST = "http://127.0.0.1:11434"
+# Ollama names: "name" or "name:tag", no spaces, e.g. qwen3:14b or hf.co/user/repo:Q4_K_M
+_OLLAMA_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._\-/]*(:[A-Za-z0-9._\-]+)?$")
+LIBRARY_HINT = "Нэрсийг https://ollama.com/library-ээс эсвэл `ollama list`-ээр харна уу."
+
+
+def normalize_ollama_name(name: str) -> str:
+    """Fix the common slip "qwen3 14b" -> "qwen3:14b"; otherwise return it trimmed."""
+    name = name.strip().strip('"')
+    m = re.match(r"^([A-Za-z0-9][A-Za-z0-9._\-/]*)\s+(\d+(?:\.\d+)?[bBmM])$", name)
+    return f"{m.group(1)}:{m.group(2).lower()}" if m else name
+
+
+def valid_ollama_name(name: str) -> bool:
+    return bool(_OLLAMA_NAME.match(name))
+
+
+def ollama_models(host: str = OLLAMA_HOST) -> List[str]:
+    """Models this Ollama already has (empty if Ollama is not running)."""
+    tags = http_json(host.rstrip("/") + "/api/tags")
+    if not isinstance(tags, dict):
+        return []
+    return [str(m.get("name") or m.get("model")) for m in tags.get("models", [])
+            if isinstance(m, dict) and (m.get("name") or m.get("model"))]
+
+
+def _ask_ollama_model(ask: Callable[[str], str], host: str = OLLAMA_HOST) -> str:
+    installed = ollama_models(host)
+    if installed:
+        say("Компьютер дээр байгаа Ollama загварууд:")
+        for i, name in enumerate(installed, 1):
+            say(f"  {i}. {name}")
+    default = installed[0] if installed else "qwen3:14b"
+    while True:
+        raw = ask(f"Ollama загварын нэр (жишээ нь qwen3:14b){' эсвэл дугаар' if installed else ''} [{default}]: ")
+        raw = raw.strip() or default
+        if raw.isdigit() and installed and 1 <= int(raw) <= len(installed):
+            return installed[int(raw) - 1]
+        name = normalize_ollama_name(raw)
+        if name != raw.strip().strip('"'):
+            say(f"[..] '{raw}' -> '{name}' гэж ойлголоо")
+        if valid_ollama_name(name):
+            return name
+        say("[!!] Ollama-ийн нэр 'нэр:хэмжээ' хэлбэртэй, хоосон зайгүй байна (жишээ нь qwen3:14b). " + LIBRARY_HINT)
+
+
 def first_run(path: Path, ask: Callable[[str], str] = input, interactive: Optional[bool] = None) -> None:
     """Create config/launch.toml, asking a few questions when possible."""
     interactive = sys.stdin.isatty() if interactive is None else interactive
@@ -133,8 +180,8 @@ def first_run(path: Path, ask: Callable[[str], str] = input, interactive: Option
     say("Анхны тохиргоо: хэдэн асуултад хариулна уу (дараа нь config/launch.toml-д засаж болно).")
     choice = ask("Загварыг юугаар ажиллуулах вэ? 1 = llama-server (GGUF файл), 2 = Ollama [1]: ").strip()
     if choice == "2":
-        model = ask("Ollama загварын нэр [qwen3:14b]: ").strip() or "qwen3:14b"
-        text = render_config(engine="ollama", host="http://127.0.0.1:11434", ollama_model=model)
+        model = _ask_ollama_model(ask)
+        text = render_config(engine="ollama", host=OLLAMA_HOST, ollama_model=model)
     else:
         found = find_gguf()
         for i, p in enumerate(found, 1):
@@ -291,15 +338,21 @@ def ensure_model_server(cfg: Dict[str, Dict[str, Any]], logs: Path
         proc = _start_logged([ollama, "serve"], log_path)
         wait_until(health, 60, proc=proc, label="Ollama", log_path=log_path)
     model = str(cfg["ollama"].get("model") or "qwen3:14b")
-    tags = http_json(health) or {}
-    names = {m.get("name") or m.get("model") for m in tags.get("models", []) if isinstance(m, dict)}
-    if model not in names and f"{model}:latest" not in names:
+    installed = ollama_models(host)
+    fix = "config/launch.toml-ийн [ollama] model-ийг засаад (эсвэл файлыг устгаж асуултад дахин хариулаад) дахин асаана уу."
+    have = (f"\nТаны Ollama-д байгаа загварууд: {', '.join(installed)}" if installed
+            else "\nТаны Ollama-д одоогоор загвар алга.")
+    if model not in installed and f"{model}:latest" not in installed:
+        if not valid_ollama_name(model):
+            raise LaunchError(f"Ollama загварын нэр буруу: {model!r}. Нэр 'нэр:хэмжээ' хэлбэртэй, хоосон зайгүй "
+                              f"байна (жишээ нь qwen3:14b). {fix}{have}")
         ollama = shutil.which("ollama")
         if not cfg["ollama"].get("pull", True) or ollama is None:
-            raise LaunchError(f"Ollama-д {model!r} загвар алга. `ollama pull {model}` ажиллуулна уу.")
+            raise LaunchError(f"Ollama-д {model!r} загвар алга. `ollama pull {model}` ажиллуулна уу.{have}")
         say(f"[..] {model} загварыг татаж байна (анх удаа удаж магадгүй)")
         if subprocess.run([ollama, "pull", model]).returncode != 0:
-            raise LaunchError(f"ollama pull {model} амжилтгүй боллоо")
+            raise LaunchError(f"ollama pull {model} амжилтгүй боллоо. Ийм нэртэй загвар байгаа эсэхийг шалгана уу. "
+                              f"{LIBRARY_HINT} {fix}{have}")
     say(f"[ok] Ollama, загвар: {model}")
     return proc, model
 
