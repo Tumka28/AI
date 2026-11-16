@@ -4,11 +4,19 @@ Usage: python fake_mcp_server.py [normal|badversion]
 """
 
 import json
+import os
 import sys
 import time
 
 MODE = sys.argv[1] if len(sys.argv) > 1 else "normal"
 state = {"pong": False}
+
+# Emulate Windows: with no UTF-8 setting in the environment, Python reads and
+# writes pipes in the locale code page (cp1252), which garbles non-ASCII text.
+if (os.environ.get("FAKE_WINDOWS_DEFAULT") and not os.environ.get("PYTHONIOENCODING")
+        and os.environ.get("PYTHONUTF8") != "1"):
+    sys.stdin.reconfigure(encoding="cp1252", errors="surrogateescape")
+    sys.stdout.reconfigure(encoding="cp1252", errors="surrogateescape")
 
 TOOLS = [
     {"name": "echo", "description": "Echo the text back.",
@@ -19,6 +27,8 @@ TOOLS = [
     {"name": "wipe", "description": "Deletes things.", "inputSchema": {"type": "object"},
      "annotations": {"destructiveHint": True}},
     {"name": "crash", "description": "Exits the server.", "inputSchema": {"type": "object"}},
+    {"name": "hang_up", "description": "Closes stdout but keeps running for a while.",
+     "inputSchema": {"type": "object"}},
 ]
 
 
@@ -70,6 +80,13 @@ for line in sys.stdin:
             text_result(req_id, str(state["pong"]))
         elif name == "crash":
             sys.exit(3)
+        elif name == "hang_up":
+            # Like a server that is shutting down: the pipe is gone, the process is not (yet).
+            # (sys.stdout.close() would keep fd 1 open, so close the descriptor itself.)
+            sys.stdout.flush()
+            os.close(sys.stdout.fileno())
+            time.sleep(3)
+            sys.exit(0)
         else:
             text_result(req_id, "ok")
     elif req_id is not None:

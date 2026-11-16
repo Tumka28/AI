@@ -57,7 +57,8 @@ def test_scripts_need_review_and_lose_exec_bit(lib, src):
     assert result["verdict"] == "review"
     assert {"script", "process_exec"} <= rules(lib.report("tool-skill"))
     copied = lib.quarantine_dir / "tool-skill" / "scripts" / "run.py"
-    assert not os.access(copied, os.X_OK)
+    if os.name != "nt":  # Windows has no executable bit: os.access(X_OK) is always True there
+        assert not os.access(copied, os.X_OK)
 
 
 @pytest.mark.parametrize("extra, rule", [
@@ -91,15 +92,25 @@ def test_harmless_lookalikes_do_not_block(lib, src):
     assert "bidi_unicode" not in rules(lib.report("safe-skill"))
 
 
-def test_symlinks_and_binaries(lib, src, tmp_path):
-    folder = write_skill(src, "odd-skill", "Has odd files.", extra={"logo.png": b"\x89PNG\x00\x01"})
+def test_binaries_need_review(lib, src):
+    write_skill(src, "odd-skill", "Has odd files.", extra={"logo.png": b"\x89PNG\x00\x01"})
+    [result] = lib.fetch(str(src))
+    assert "binary" in rules(lib.report("odd-skill"))
+    assert result["verdict"] == "review"
+
+
+def test_symlinks_are_not_copied(lib, src, tmp_path):
+    folder = write_skill(src, "link-skill", "Has a link.")
     secret = tmp_path / "secret.txt"
     secret.write_text("password")
-    os.symlink(secret, folder / "link.txt")
+    try:
+        os.symlink(secret, folder / "link.txt")
+    except OSError:
+        # Windows allows symlinks only for admins or with Developer Mode on.
+        pytest.skip("this system does not allow creating symlinks")
     [result] = lib.fetch(str(src))
-    found = rules(lib.report("odd-skill"))
-    assert {"binary", "symlink"} <= found
-    assert not (lib.quarantine_dir / "odd-skill" / "link.txt").exists()
+    assert "symlink" in rules(lib.report("link-skill"))
+    assert not (lib.quarantine_dir / "link-skill" / "link.txt").exists()
     assert result["verdict"] == "review"
 
 

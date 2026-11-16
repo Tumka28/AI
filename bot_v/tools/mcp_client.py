@@ -29,6 +29,7 @@ from __future__ import annotations
 import json
 import os
 import queue
+import shutil
 import subprocess
 import threading
 import time
@@ -41,6 +42,7 @@ CLIENT_INFO = {"name": "bot-v", "version": "0.3"}
 REQUEST_VERSION = "2025-11-25"
 HANDSHAKE_VERSIONS = ("2024-11-05", "2025-03-26", "2025-06-18", "2025-11-25")
 MAX_LINE = 10_000_000
+_STDOUT_CLOSED = "_botv_stdout_closed"  # flag set on a Popen once its stdout hits EOF
 
 
 class MCPError(RuntimeError):
@@ -74,24 +76,41 @@ class MCPServer:
     # ----------------------------------------------------------- process
     @property
     def running(self) -> bool:
-        return self._proc is not None and self._proc.poll() is None
+        proc = self._proc
+        # A server whose stdout has closed can no longer answer, even if the
+        # process has not finished exiting yet (on Windows that takes a moment).
+        return proc is not None and proc.poll() is None and not getattr(proc, _STDOUT_CLOSED, False)
 
     def start(self) -> None:
         with self._state_lock:
             if self.running:
                 return
+            old = self._proc
+            if old is not None and old.poll() is None:
+                try:
+                    old.kill()  # stdout closed but the process lingers: don't leave it behind
+                except OSError:
+                    pass
+            # On Windows "npx", "uvx"... are .cmd files that subprocess cannot
+            # find by name; shutil.which resolves them through PATHEXT.
+            command = shutil.which(self.command) or self.command
+            # MCP stdio is UTF-8. Python servers on Windows otherwise read and
+            # write pipes as cp1252, which garbles non-English text. Values
+            # already set in the environment or the server's config win.
+            env = {"PYTHONIOENCODING": "utf-8", "PYTHONUTF8": "1", **os.environ, **self.env}
             started = time.perf_counter()
             try:
-                self._proc = subprocess.Popen(
-                    [self.command, *self.args],
+                proc = subprocess.Popen(
+                    [command, *self.args],
                     stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                    env={**os.environ, **self.env}, cwd=self.cwd,
-                    text=True, encoding="utf-8", bufsize=1,
+                    env=env, cwd=self.cwd,
+                    text=True, encoding="utf-8", errors="replace", bufsize=1,
                 )
             except OSError as exc:
                 raise MCPError(f"{self.name}: cannot start {self.command!r}: {exc}") from exc
-            threading.Thread(target=self._read_stdout, daemon=True).start()
-            threading.Thread(target=self._read_stderr, daemon=True).start()
+            self._proc = proc
+            threading.Thread(target=self._read_stdout, args=(proc,), daemon=True).start()
+            threading.Thread(target=self._read_stderr, args=(proc,), daemon=True).start()
         try:
             result = self._request("initialize", {
                 "protocolVersion": REQUEST_VERSION,
@@ -135,9 +154,8 @@ class MCPServer:
             except queue.Full:
                 pass
 
-    def _read_stdout(self) -> None:
-        proc = self._proc
-        if proc is None or proc.stdout is None:
+    def _read_stdout(self, proc: subprocess.Popen) -> None:
+        if proc.stdout is None:
             return
         for line in proc.stdout:
             line = line.strip()
@@ -162,14 +180,19 @@ class MCPServer:
                 except MCPError:
                     pass
             # notifications from the server (logging, list_changed...) are ignored
-        # Our process ended. Fail its pending requests, unless a new process
-        # already replaced it (then close() has failed the old ones).
+        # The server closed stdout: it cannot answer any more. Mark it, then fail
+        # its pending requests, unless a new process already replaced it (then
+        # close() has failed the old ones).
+        setattr(proc, _STDOUT_CLOSED, True)
         if self._proc is proc or self._proc is None:
             self._fail_all("server exited")
+        try:
+            proc.wait(timeout=5)  # reap the process once it finishes exiting
+        except Exception:
+            pass
 
-    def _read_stderr(self) -> None:
-        proc = self._proc
-        if proc is None or proc.stderr is None:
+    def _read_stderr(self, proc: subprocess.Popen) -> None:
+        if proc.stderr is None:
             return
         for line in proc.stderr:
             self._stderr_tail = (self._stderr_tail + [line.rstrip()])[-20:]
