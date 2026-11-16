@@ -9,11 +9,27 @@ from bot_v.learning.dataset import TrainingStore
 from bot_v.skills.library import SkillLibrary
 from bot_v.teacher.base import TeacherReview
 
-from fakes import FailingLLM, FakeJarvis, FakeLLM, FakeTeacher, write_skill
+from bot_v.tools.native import register_native_tools
+from bot_v.tools.registry import Tool, ToolRegistry
+
+from fakes import FailingLLM, FakeJarvis, FakeLLM, FakeTeacher, ScriptedLLM, write_skill
+
+
+def home_tools():
+    reg = ToolRegistry()
+    register_native_tools(reg)
+    switched = []
+    reg.register(Tool(
+        name="lamp_on", description="Turn on a lamp.",
+        input_schema={"type": "object", "properties": {"entity_id": {"type": "string"}}, "required": ["entity_id"]},
+        handler=lambda a: switched.append(a["entity_id"]) or {"on": a["entity_id"]},
+        source="homeassistant", risk="write", keywords=("гэрэл", "гэрл", "lamp"), auto=True,
+    ))
+    return reg, switched
 
 
 def make_bot(tmp_path, llm=None, jarvis=None, approver=None, installed=True,
-             teacher=None, mode="fallback", skills=None):
+             teacher=None, mode="fallback", skills=None, tools=None):
     jarvis = jarvis or FakeJarvis()
     adapter = OpenJarvisAdapter(jarvis_factory=lambda: jarvis)
     if not installed:
@@ -27,6 +43,7 @@ def make_bot(tmp_path, llm=None, jarvis=None, approver=None, installed=True,
         teacher_mode=mode,
         training=TrainingStore(tmp_path / "train.jsonl"),
         skills=skills or SkillLibrary(root=tmp_path / "skills"),
+        tools=tools,
     )
     return bot, jarvis
 
@@ -227,6 +244,47 @@ def test_delegate_passes_skill_instructions_to_openjarvis(tmp_path):
     sent = jarvis.calls[0]["query"]
     assert "Use pypdf to merge." in sent and "<task>\nmerge these pdf files please\n</task>" in sent
     assert bot.log.tail(1)[0]["input"] == "merge these pdf files please"
+
+
+# ------------------------------------------------------------------- tools
+def test_home_request_goes_to_tools_and_waits_for_approval(tmp_path):
+    reg, switched = home_tools()
+    llm = ScriptedLLM('{"tool": "lamp_on", "args": {"entity_id": "light.kitchen"}}')
+    bot, jarvis = make_bot(tmp_path, llm=llm, tools=reg)
+    out = bot.handle("гал тогооны гэрлийг асаа")  # auto mode
+    assert out["backend"] == "tools" and out["status"] == "needs_approval"
+    assert switched == [] and llm.calls == []  # no plain chat, nothing switched yet
+
+    done = bot.approve_action(out["action"]["id"])
+    assert done["status"] == "ok" and switched == ["light.kitchen"]
+    kinds = [e["kind"] for e in bot.log.tail(5)]
+    assert kinds[-2:] == ["tools", "action"]
+
+
+def test_denied_action_does_nothing(tmp_path):
+    reg, switched = home_tools()
+    bot, _ = make_bot(tmp_path, llm=ScriptedLLM('{"tool": "lamp_on", "args": {"entity_id": "light.a"}}'), tools=reg)
+    action = bot.handle("гэрэл асаа", backend="tools")["action"]
+    assert bot.deny_action(action["id"])["status"] == "denied"
+    assert bot.approve_action(action["id"])["status"] == "error"
+    assert switched == []
+
+
+def test_non_home_requests_stay_in_chat(tmp_path):
+    reg, _ = home_tools()
+    llm = ScriptedLLM()
+    bot, _ = make_bot(tmp_path, llm=llm, tools=reg)
+    assert bot.handle("Монголын нийслэл?")["backend"] == "local"
+    assert llm.chats == []
+
+
+def test_tools_backend_answers_with_native_tool(tmp_path):
+    reg, _ = home_tools()
+    llm = ScriptedLLM('{"tool": "calculate", "args": {"expression": "2+2*10"}}', '{"answer": "22"}')
+    bot, _ = make_bot(tmp_path, llm=llm, tools=reg)
+    out = bot.handle("please calculate 2+2*10", backend="tools")
+    assert out["reply"] == "22" and out["steps"][0]["tool"] == "calculate"
+    assert "calculate" in llm.chats[0][0]["content"]
 
 
 def test_status_reports_teacher_skills_and_learning(tmp_path):

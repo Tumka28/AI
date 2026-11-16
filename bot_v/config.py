@@ -23,6 +23,14 @@ Teacher (a bigger model Bot V learns from; off unless BOTV_TEACHER is set):
     BOTV_TEACHER_MODE     "fallback" (default): ask the teacher when the local model fails
                           "review": the teacher also grades every local answer
                           "manual": only when the teacher is asked directly
+
+Tools:
+
+    BOTV_MCP_CONFIG       MCP servers file (default: <repo>/config/mcp.json, if present)
+    BOTV_HA_URL           Home Assistant URL, e.g. http://homeassistant.local:8123
+    BOTV_HA_TOKEN         Home Assistant long-lived access token (keep it secret)
+    BOTV_HA_ENTITIES      optional allowlist, e.g. "light.*,switch.kitchen,sensor.*"
+    BOTV_HA_ALLOW_DANGEROUS  "1" to allow (with approval) locks, alarms, covers, scripts...
 """
 
 from __future__ import annotations
@@ -30,7 +38,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
@@ -56,6 +64,11 @@ class Settings:
     teacher_host: str = ""
     teacher_effort: str = "high"
     teacher_mode: str = "fallback"
+    mcp_config: Optional[str] = None
+    ha_url: str = ""
+    ha_token: str = field(default="", repr=False)
+    ha_entities: List[str] = field(default_factory=list)
+    ha_allow_dangerous: bool = False
 
 
 TEACHER_PROVIDERS = ("", "claude", "openai", "ollama")
@@ -101,6 +114,12 @@ def load_settings(env: Optional[Dict[str, str]] = None) -> Settings:
     if teacher in ("openai", "ollama") and not teacher_host:
         teacher_host = _DEFAULT_HOSTS[teacher]
 
+    mcp_config = env.get("BOTV_MCP_CONFIG")
+    if not mcp_config:
+        default_mcp = PROJECT_ROOT / "config" / "mcp.json"
+        mcp_config = str(default_mcp) if default_mcp.exists() else None
+    ha_entities = [p.strip() for p in env.get("BOTV_HA_ENTITIES", "").split(",") if p.strip()]
+
     return Settings(
         llm_backend=backend,
         llm_host=env.get("BOTV_LLM_HOST", _DEFAULT_HOSTS[backend]),
@@ -114,6 +133,11 @@ def load_settings(env: Optional[Dict[str, str]] = None) -> Settings:
         teacher_host=teacher_host,
         teacher_effort=teacher_effort,
         teacher_mode=teacher_mode,
+        mcp_config=mcp_config,
+        ha_url=env.get("BOTV_HA_URL", "").strip(),
+        ha_token=env.get("BOTV_HA_TOKEN", "").strip(),
+        ha_entities=ha_entities,
+        ha_allow_dangerous=env.get("BOTV_HA_ALLOW_DANGEROUS", "").strip().lower() in ("1", "true", "yes"),
     )
 
 

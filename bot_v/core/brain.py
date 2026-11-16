@@ -3,6 +3,8 @@
 Bot V owns the decisions; backends do the work:
 
     user -> BotV -> local LLM              Bot V's own answers (+ approved skills)
+                 -> ToolAgent -> tools     JSON tool calls: native, Home Assistant, MCP
+                                           (actions wait for the user's approval)
                  -> Teacher                a stronger model, when the local one fails
                                            or to grade local answers (review mode)
                  -> PermissionGate -> OpenJarvisAdapter -> OpenJarvis agents/tools
@@ -17,19 +19,22 @@ from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
 
 from bot_v.config import settings
 from bot_v.core.permissions import PermissionGate
+from bot_v.core.tool_agent import ToolAgent
 from bot_v.integrations.openjarvis_adapter import OpenJarvisAdapter, OpenJarvisUnavailable
 from bot_v.learning.dataset import TrainingStore
 from bot_v.llm.client import LLMClient, is_error
 from bot_v.memory.experience_log import ExperienceLog
 from bot_v.skills.library import SkillLibrary
 from bot_v.teacher import Teacher, TeacherError, load_teacher
+from bot_v.tools import MCPManager, ToolRegistry, build_default_tools
 
 SYSTEM_PROMPT = (
     "You are Bot V, a personal AI assistant. Answer clearly and concisely, "
     "in the same language the user writes in."
 )
 
-BACKENDS = ("auto", "local", "openjarvis", "teacher")
+BACKENDS = ("auto", "local", "openjarvis", "teacher", "tools")
+MAX_TOOLS_IN_PROMPT = 12
 GOOD_SCORE = 8  # review score at or above which a "good" local answer is kept
 
 _FROM_SETTINGS: Any = object()
@@ -47,6 +52,8 @@ class BotV:
         teacher_mode: Optional[str] = None,
         training: Optional[TrainingStore] = None,
         skills: Optional[SkillLibrary] = None,
+        tools: Optional[ToolRegistry] = None,
+        mcp: Optional[MCPManager] = None,
     ):
         self.llm = llm or LLMClient()
         self.openjarvis = openjarvis or OpenJarvisAdapter()
@@ -57,6 +64,11 @@ class BotV:
         self.teacher_mode = teacher_mode or settings.teacher_mode
         self.training = training or TrainingStore()
         self.skills = skills or SkillLibrary()
+        if tools is None:
+            tools, default_mcp = build_default_tools(approver=self.gate.approver)
+            mcp = mcp if mcp is not None else default_mcp
+        self.tools = tools
+        self.mcp = mcp
 
     def _event(self, text: str) -> None:
         if self._on_event is not None:
@@ -214,13 +226,53 @@ class BotV:
             out["skills"] = local["skills"]
         return out
 
+    # --------------------------------------------------------------- tools
+    def load_tools(self) -> None:
+        """Start MCP servers (first time only) and register their tools."""
+        if self.mcp is not None:
+            self.mcp.load(self.tools)
+
+    def use_tools(self, message: str, tools: Optional[List[Any]] = None) -> Dict[str, Any]:
+        """Let the local model use tools through JSON calls."""
+        self.load_tools()
+        if not tools:
+            tools = self.tools.relevant(message, limit=MAX_TOOLS_IN_PROMPT) or \
+                self.tools.list()[:MAX_TOOLS_IN_PROMPT]
+        names, context = self._skill_context(message)
+        self._event(f"tools: {[t.name for t in tools]}")
+        result = ToolAgent(self.llm, self.tools).run(message, tools, context=context)
+        self.log.record("tools", backend="tools", input=message, output=result.get("reply"),
+                        status=result["status"], steps=result.get("steps"),
+                        action=result.get("action"), skills=names or None)
+        out = {"status": result["status"], "backend": "tools", "reply": result["reply"],
+               "steps": result.get("steps", [])}
+        if "action" in result:
+            out["action"] = result["action"]
+        if names:
+            out["skills"] = names
+        return out
+
+    def approve_action(self, action_id: str) -> Dict[str, Any]:
+        result = self.tools.approve(action_id)
+        self.log.record("action", backend="tools", action_id=action_id, decision="approved",
+                        tool=result.get("tool"), status=result["status"], error=result.get("error"))
+        self._event(f"action {action_id}: {result['status']}")
+        return result
+
+    def deny_action(self, action_id: str) -> Dict[str, Any]:
+        result = self.tools.deny(action_id)
+        self.log.record("action", backend="tools", action_id=action_id, decision="denied",
+                        tool=result.get("tool"), status=result["status"])
+        return result
+
     # -------------------------------------------------------------- router
     def handle(self, message: str, backend: str = "auto") -> Dict[str, Any]:
         """Entry point for a user message.
 
-        ``auto``: the local model answers. If it fails, Bot V asks the teacher
-        (unless the teacher mode is "manual"), then OpenJarvis. In "review"
-        mode the teacher also grades every local answer.
+        ``auto``: home/device requests go to the tool loop. Otherwise the local
+        model answers; if it fails, Bot V asks the teacher (unless the teacher
+        mode is "manual"), then OpenJarvis. In "review" mode the teacher also
+        grades every local answer.
         """
         if backend not in BACKENDS:
             raise ValueError(f"backend must be one of {BACKENDS}, got {backend!r}")
@@ -228,6 +280,13 @@ class BotV:
             return self.delegate(message)
         if backend == "teacher":
             return self.ask_teacher(message)
+        if backend == "tools":
+            return self.use_tools(message)
+
+        if backend == "auto" and self.tools.relevant(message, auto_only=True):
+            result = self.use_tools(message)
+            if result["status"] != "error":
+                return result
 
         local = self.chat(message)
         if backend == "local":
@@ -263,6 +322,9 @@ class BotV:
                               "quarantined": [s["name"] for s in skills["quarantined"]]}
         except Exception as exc:
             skills_summary = {"error": str(exc)}
+        sources: Dict[str, int] = {}
+        for tool in self.tools.list():
+            sources[tool.source] = sources.get(tool.source, 0) + 1
         return {
             "llm": {
                 "backend": self.llm.backend,
@@ -273,9 +335,16 @@ class BotV:
             "teacher": teacher,
             "learning": self.training.stats(),
             "skills": skills_summary,
+            "tools": {
+                "by_source": sources,
+                "pending_actions": len(self.tools.pending()),
+                "mcp": self.mcp.status() if self.mcp else None,
+            },
             "safe_tools": sorted(self.gate.safe_tools),
             "approver": self.gate.approver is not None,
         }
 
     def close(self) -> None:
         self.openjarvis.close()
+        if self.mcp is not None:
+            self.mcp.close()

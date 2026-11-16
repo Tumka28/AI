@@ -8,3 +8,6 @@ venv/
 data/
 generated_project/
 refactored_project/
+
+# Local MCP server list (may hold tokens in "env")
+config/mcp.json

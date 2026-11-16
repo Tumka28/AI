@@ -130,6 +130,39 @@ def create_app(bot: Optional[BotV] = None, root: Path = PROJECT_ROOT) -> Flask:
             {"tools": [{"name": t, "needs_approval": not bot.gate.is_safe(t)} for t in tools]}
         )
 
+    # --------------------------------------------------------------- tools
+    @app.get("/tools")
+    def tools_list():
+        bot.load_tools()
+        return jsonify({"tools": bot.tools.describe(),
+                        "mcp": bot.mcp.status() if bot.mcp else None})
+
+    @app.post("/tools/call")
+    def tools_call():
+        data = _json_body()
+        name = _require_str(data, "tool")
+        args = data.get("args") or {}
+        if not isinstance(args, dict):
+            abort(400, description="'args' must be a JSON object")
+        bot.load_tools()
+        result = bot.tools.call(name, args, task=f"direct call: {name}")
+        code = {"ok": 200, "needs_approval": 202, "denied": 403, "invalid_args": 400}.get(result["status"], 502)
+        return jsonify(result), code
+
+    @app.get("/actions")
+    def actions_list():
+        return jsonify({"pending": bot.tools.pending()})
+
+    @app.post("/actions/approve")
+    def actions_approve():
+        result = bot.approve_action(_require_str(_json_body(), "id"))
+        return jsonify(result), (200 if result["status"] == "ok" else 400)
+
+    @app.post("/actions/deny")
+    def actions_deny():
+        result = bot.deny_action(_require_str(_json_body(), "id"))
+        return jsonify(result), (200 if result["status"] == "denied" else 400)
+
     # ------------------------------------------------------- teacher/learning
     @app.get("/learning/stats")
     def learning_stats():

@@ -1,6 +1,6 @@
 # Bot V
 
-**Bot V** нь хувийн AI туслах. Bot V бол **тархи** нь: юу хийх, хэн хийх, ямар хэрэгслийг ашиглахыг өөрөө шийднэ. Ажлыг өөрийн локал модель, өөрийн agent-ууд эсвэл **OpenJarvis**-ээр гүйцэтгүүлнэ. Өөрөөсөө хүчтэй **багш** (teacher) модельноос суралцаж, гаднаас **skill** импортлоно.
+**Bot V** нь хувийн AI туслах. Bot V бол **тархи** нь: юу хийх, хэн хийх, ямар хэрэгслийг ашиглахыг өөрөө шийднэ. Ажлыг өөрийн локал модель, өөрийн agent-ууд эсвэл **OpenJarvis**-ээр гүйцэтгүүлнэ. Өөрөөсөө хүчтэй **багш** (teacher) модельноос суралцаж, гаднаас **skill** импортлоно. **Tool**-уудыг (Home Assistant, MCP серверүүд) JSON-оор удирдаж, үйлдэл бүрийг таны зөвшөөрлөөр гүйцэтгэнэ.
 
 ```
                  ┌─────────────────────────────────────────┐
@@ -9,17 +9,18 @@
                  │ permissions.py: tool-ийн зөвшөөрөл      │
                  │ skills/: батлагдсан skill-ийн заавар    │
                  │ experience_log + learning: туршлага     │
-                 └───┬──────────────┬──────────────┬───────┘
-                     │              │              │ зөвшөөрөгдсөн даалгавар
-                     ▼              ▼              ▼
-             ┌──────────────┐ ┌────────────┐ ┌──────────────────────┐
-             │ Локал LLM    │ │ Teacher    │ │ OpenJarvis adapter   │
-             │ Ollama /     │ │ Claude эсвэл│ │ → 22 agent, 43 tool, │
-             │ llama-server │ │ том модель │ │   memory, ...        │
-             └──────────────┘ └─────┬──────┘ └──────────────────────┘
-                                    ▼
-                         data/learning/examples.jsonl
-                         → fine-tune (SFT / DPO) өгөгдөл
+                 └──┬───────────┬──────────────┬───────────┬──────┘
+                    │           │              │           │ зөвшөөрөгдсөн даалгавар
+                    ▼           ▼              ▼           ▼
+           ┌────────────┐ ┌────────────┐ ┌───────────┐ ┌──────────────────────┐
+           │ Локал LLM  │ │ Tools (JSON)│ │ Teacher   │ │ OpenJarvis adapter   │
+           │ Ollama /   │ │ native,    │ │ Claude    │ │ → 22 agent, 43 tool, │
+           │ llama-     │ │ Home Asst, │ │ эсвэл том │ │   memory, ...        │
+           │ server     │ │ MCP        │ │ модель    │ └──────────────────────┘
+           └────────────┘ └─────┬──────┘ └─────┬─────┘
+                                ▼              ▼
+                    үйлдэл бүр таны      data/learning/examples.jsonl
+                    зөвшөөрлөөр          → fine-tune (SFT / DPO)
 ```
 
 OpenJarvis нь Bot V-ийн кодонд **хуулагдаагүй**. Тусдаа сан хэвээр үлдэж, Bot V түүнийг adapter-аар дамжуулан удирдана. Яагаад ингэснийг [docs/openjarvis.md](docs/openjarvis.md)-ээс уншина уу.
@@ -28,7 +29,9 @@ OpenJarvis нь Bot V-ийн кодонд **хуулагдаагүй**. Тусд
 
 | Хавтас | Юу байгаа |
 |---|---|
-| `bot_v/core/` | **brain.py** (Bot V-ийн тархи), **permissions.py** (зөвшөөрлийн хаалга), ReAct, Tree-of-Thought, task |
+| `bot_v/core/` | **brain.py** (Bot V-ийн тархи), **tool_agent.py** (JSON tool давталт), **permissions.py** (зөвшөөрлийн хаалга), ReAct, Tree-of-Thought, task |
+| `bot_v/tools/` | Нэгдсэн tool давхарга: **registry.py** (JSON schema, эрсдэл, зөвшөөрлийн queue, хурд), **native.py**, **mcp_client.py** (MCP stdio client) |
+| `bot_v/integrations/home_assistant.py` | Home Assistant REST API (шууд JSON) |
 | `bot_v/teacher/` | **Teacher**: Claude (`claude.py`) эсвэл өөрийн том модель (`llm_teacher.py`) |
 | `bot_v/learning/` | Багшаас сурсан жишээнүүд, SFT/DPO dataset export |
 | `bot_v/skills/` | **library.py**: гадны skill импорт (quarantine → шалгалт → зөвшөөрөл), **scanner.py**: хор илрүүлэгч. Мөн кодноос skill гаргах (`expansion/`) |
@@ -42,7 +45,8 @@ OpenJarvis нь Bot V-ийн кодонд **хуулагдаагүй**. Тусд
 | `bot_v/server.py` | Flask сервер (IDE + JSON API) |
 | `ui/` | Вэб IDE (Monaco editor, chat, terminal) |
 | `config/openjarvis.toml` | Bot V-ийн OpenJarvis-д өгөх тохиргоо |
-| `docs/` | [OpenJarvis судалгаа](docs/openjarvis.md), [Суралцах ба fine-tune](docs/learning.md), [Skill импорт](docs/skills.md) |
+| `config/mcp.example.json` | MCP серверүүдийн жишээ тохиргоо (`config/mcp.json` болгон хуулна) |
+| `docs/` | [OpenJarvis судалгаа](docs/openjarvis.md), [Суралцах ба fine-tune](docs/learning.md), [Skill импорт](docs/skills.md), [Tool, MCP, Home Assistant](docs/tools.md) |
 | `tests/` | Тестүүд (`pytest`) |
 | `legacy/`, `docs/notes/` | Хуучин ноорог файлууд (лавлагаа болгон хадгалсан) |
 
@@ -87,10 +91,28 @@ python -m bot_v.server
 ```
 
 Хөтөч дээр **http://127.0.0.1:5000** нээнэ. Chat-ийн хажууд хэн хариулахыг сонгоно:
-- **Bot V (auto)**: эхлээд локал модель хариулна. Тэр ажиллахгүй бол багш, дараа нь OpenJarvis руу шилжинэ.
+- **Bot V (auto)**: гэр/төхөөрөмжийн тухай хүсэлт бол tool-ууд руу, бусад үед эхлээд локал модель. Тэр ажиллахгүй бол багш, дараа нь OpenJarvis руу шилжинэ.
 - **Local model**: зөвхөн локал модель.
 - **OpenJarvis**: шууд OpenJarvis.
 - **Teacher**: шууд багш (хариултыг нь сургалтын өгөгдөлд хадгална).
+- **Tools / Home**: tool-уудыг (Home Assistant, MCP, тооцоолуур…) заавал ашиглуулна.
+
+## Tool-ууд: JSON, MCP, Home Assistant
+
+Бүх tool нэг JSON хэлбэртэй: `{"tool": "...", "args": {...}}`. Локал загвар tool-уудтай JSON-оор ярина.
+
+```bash
+export BOTV_HA_URL=http://homeassistant.local:8123
+export BOTV_HA_TOKEN=<long-lived token>      # нууц: git-д битгий оруул
+cp config/mcp.example.json config/mcp.json   # MCP серверүүд (заавал биш)
+python -m bot_v.server
+```
+
+- Chat-д **"Гал тогооны гэрлийг асаа"** гэж бичихэд Bot V `ha_call_service` дуудахаар шийдэж, **таны зөвшөөрлийг асууна**. Мэдрэгч уншихад зөвшөөрөл хэрэггүй.
+- Цоож, дохиолол, гаражийн хаалга, script/scene зэрэг аюултай domain анхдагчаар **хаалттай** (`BOTV_HA_ALLOW_DANGEROUS=1` болгож нээнэ, тэгсэн ч зөвшөөрөл шаардана).
+- **MCP-ийн хурд:** MCP өөрөө JSON-RPC. Хэмжилтээр нэг дуудлага ~1.5–3 ms, харин серверийг эхлүүлэхэд ~0.6 s (`npx` бол хэдэн секунд) зарцуулдаг. Тиймээс Bot V серверийг **нэг удаа** асааж, байнга нээлттэй байлгаж, tool-ийн жагсаалтыг кэшлэнэ. Мөн загварт зөвхөн хэрэгтэй tool-уудыг (≤12) харуулна. Home Assistant-ийг MCP-гүйгээр **шууд REST JSON**-оор удирдана.
+
+Дэлгэрэнгүй: [docs/tools.md](docs/tools.md).
 
 ## Багш (Teacher): өөрөөсөө хүчтэй модельноос суралцах
 
@@ -193,6 +215,10 @@ bot = BotV(gate=PermissionGate(approver=lambda task, tools: input(f"{tools} зө
 | `BOTV_TEACHER_HOST` | `:11434` / `:8080` | `openai`/`ollama` багшийн сервер |
 | `BOTV_TEACHER_EFFORT` | `high` | Claude: `low` … `max` |
 | `BOTV_TEACHER_MODE` | `fallback` | `fallback`, `review`, `manual` |
+| `BOTV_HA_URL` / `BOTV_HA_TOKEN` | – | Home Assistant хаяг ба long-lived token |
+| `BOTV_HA_ENTITIES` | (бүгд) | Зөвшөөрөгдсөн entity-үүд, жишээ нь `light.*,sensor.*` |
+| `BOTV_HA_ALLOW_DANGEROUS` | унтраалттай | `1`: цоож, дохиолол, хаалга, script-ийг (зөвшөөрөлтэйгөөр) нээх |
+| `BOTV_MCP_CONFIG` | `config/mcp.json` | MCP серверүүдийн жагсаалт |
 | `BOTV_DATA_DIR` | `./data` | Bot V-ийн өгөгдөл (санах ой, туршлага, skill, сургалтын өгөгдөл) |
 | `BOTV_OPENJARVIS_CONFIG` | `config/openjarvis.toml` | OpenJarvis-ийн тохиргоо |
 | `BOTV_SERVER_HOST` / `PORT` | `127.0.0.1` / `5000` | Вэб сервер |
@@ -213,9 +239,10 @@ pytest
 | 1 | Repo-г `bot_v/` бүтэц рүү цэгцлэх, ажилладаг сервер | ✅ |
 | 2 | Локал LLM (Ollama / llama-server) | ✅ |
 | 3 | OpenJarvis-ийг adapter-аар удирдах + зөвшөөрлийн хаалга | ✅ |
-| 4 | Гадны skill-ийг аюулгүй импортлох (quarantine, шалгалт, зөвшөөрөл, hash lock) | ✅ эхний хувилбар. MCP tool нэмэх нь дараагийн алхам |
+| 4 | Гадны skill-ийг аюулгүй импортлох (quarantine, шалгалт, зөвшөөрөл, hash lock) + **MCP tool-ууд** (stdio) | ✅ эхний хувилбар. MCP HTTP серверүүд дараагийн алхам |
 | 5 | **Teacher**: багшаас суралцах, SFT/DPO dataset | ✅ эхний хувилбар. LoRA сургалтыг өөрийн GPU дээр хийнэ ([docs/learning.md](docs/learning.md)) |
-| 6 | Home Assistant, дараа нь компьютер/утас удирдах | алсын зорилго |
+| 6 | **Home Assistant** (шууд JSON, зөвшөөрөлтэй) | ✅ эхний хувилбар |
+| 7 | Компьютер/утас удирдах, дуут удирдлага | алсын зорилго |
 
 ## Лиценз
 

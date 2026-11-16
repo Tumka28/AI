@@ -85,6 +85,18 @@ def test_ui_is_served(client):
     assert client.get("/ui/app.js").status_code == 200
 
 
+def test_tools_endpoints(client):
+    tools = {t["name"]: t for t in client.get("/tools").get_json()["tools"]}
+    assert {"calculate", "now"} <= set(tools)
+
+    ok = client.post("/tools/call", json={"tool": "calculate", "args": {"expression": "6*7"}})
+    assert ok.status_code == 200 and ok.get_json()["result"]["value"] == 42
+    assert client.post("/tools/call", json={"tool": "calculate", "args": {}}).status_code == 400
+    assert client.post("/tools/call", json={"tool": "calculate", "args": "x"}).status_code == 400
+    assert client.get("/actions").get_json() == {"pending": []}
+    assert client.post("/actions/approve", json={"id": "nope"}).status_code == 400
+
+
 def test_teacher_chat_and_dataset_export(client):
     out = client.post("/chat", json={"message": "Нийслэл?", "backend": "teacher"}).get_json()
     assert out["backend"] == "teacher" and out["learned"] is True

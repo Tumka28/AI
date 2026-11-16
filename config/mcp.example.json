@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "files": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/home/YOU/Documents"],
+      "allow": ["read_file", "list_directory", "search_files"]
+    },
+    "my-python-server": {
+      "command": "python",
+      "args": ["/path/to/server.py"],
+      "env": {},
+      "allow": [],
+      "disabled": true
+    }
+  }
+}

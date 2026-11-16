@@ -63,6 +63,21 @@ class FakeLLM:
         return self.reply
 
 
+class ScriptedLLM(FakeLLM):
+    """chat() returns the scripted replies in order (for the JSON tool loop)."""
+
+    def __init__(self, *replies: str, reply: str = "local reply"):
+        super().__init__(reply=reply)
+        self.replies = list(replies)
+        self.chats: List[List[Dict[str, Any]]] = []
+
+    def chat(self, model: str, messages: List[Dict[str, Any]]) -> str:
+        self.chats.append([dict(m) for m in messages])
+        if not self.replies:
+            return '{"answer": "done"}'
+        return self.replies.pop(0)
+
+
 class FailingLLM(FakeLLM):
     def __init__(self):
         super().__init__(reply=f"{ERROR_PREFIX} cannot reach server")

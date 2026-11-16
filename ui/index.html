@@ -33,6 +33,7 @@
                     <option value="local">Local model</option>
                     <option value="openjarvis">OpenJarvis</option>
                     <option value="teacher">Teacher</option>
+                    <option value="tools">Tools / Home</option>
                 </select>
                 <input id="chat-input" placeholder="Ask Bot V anything..." />
                 <button onclick="sendChat()">Send</button>
@@ -58,6 +59,12 @@
         <button onclick="askOpenJarvis()">🤖 Give OpenJarvis a Task</button>
         <button onclick="openJarvisAgents()">📋 Agents</button>
         <button onclick="openJarvisTools()">🧰 Tools</button>
+
+        <hr>
+
+        <h3>Tools / Home</h3>
+        <button onclick="listTools()">🛠️ Tools (latency)</button>
+        <button onclick="pendingActions()">✅ Pending Actions</button>
 
         <hr>
 

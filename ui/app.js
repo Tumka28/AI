@@ -109,10 +109,23 @@ async function sendChat() {
     let who = "Bot V";
     if (data.backend === "openjarvis") who = "Bot V → OpenJarvis";
     if (data.backend === "teacher") who = "Bot V → Teacher";
+    if (data.backend === "tools") who = "Bot V → Tools";
     if (data.fallback_from) who += " (fallback)";
     if (data.review) who += ` (review ${data.review.score}/10)`;
     if (data.skills) who += ` [skills: ${data.skills.join(", ")}]`;
     addChatMessage(who + ": " + data.reply);
+    if (data.steps && data.steps.length) showTerminal(data.steps);
+    if (data.status === "needs_approval" && data.action) await askApproval(data.action);
+}
+
+async function askApproval(action) {
+    const risk = action.risk === "dangerous" ? "⚠️ DANGEROUS action. " : "";
+    const ok = confirm(`${risk}Bot V wants to run ${action.tool}\n` +
+                       `${JSON.stringify(action.args, null, 2)}\n\nApprove?`);
+    const url = ok ? "/actions/approve" : "/actions/deny";
+    const result = await postJSON(url, { id: action.id });
+    showTerminal(result);
+    addChatMessage(ok ? `Approved ${action.tool}: ${result.status}` : `Denied ${action.tool}`);
 }
 
 function addChatMessage(msg) {
@@ -155,6 +168,20 @@ async function botStatus() {
 
 async function experienceLog() {
     showTerminal(await getJSON("/experience?n=20"));
+}
+
+
+// ===========================================================
+// TOOLS / HOME ASSISTANT / MCP
+// ===========================================================
+async function listTools() {
+    showTerminal(await getJSON("/tools"));
+}
+
+async function pendingActions() {
+    const data = await getJSON("/actions");
+    showTerminal(data);
+    for (const action of data.pending) await askApproval(action);
 }
 
 
